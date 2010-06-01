@@ -1,0 +1,29 @@
+v1.0 release -
+v1.0 beta -
+v1.0 alpha - 
+
+v1.0 - 2010.06.01
+  - merge codes into dedup_util 
+  - fix bugs
+
+v0.1 - 2010.05.26
+  - add dedup_rm, remove file from deduped package
+
+v0.1 - 2010.05.21
+  - add dedup_add, add files to deduped package
+  - extract specific file for undedup
+
+v0.1 - 2010.05.20
+  - add dedup_ls, list contents of deduped package 
+
+v0.1 - 2010.01.07
+  - keep mode of original file
+
+v0.1 - 2010.01.03
+  - parse argvs with getopt
+  - rewrite Makefile with autoconf and automake 
+
+v0.1 - 2009.12.27
+  - package with deduplication feature
+  - extract files from deduped package
+  - z77 compress supported with zlib
