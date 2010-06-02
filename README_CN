@@ -1,0 +1,88 @@
+[dedup util]
+dedup util是一款开源的轻量级文件打包工具，它基于块级的重复数据删除技术，可以有效缩减数据容量，节省用户
+存储空间。目前已经在Sourceforge上创建项目，并且源码正在不断更新中。
+该工具生成的数据包内部数据部局(layout)如下：
+--------------------------------------------------
+|  header  |  unique block data |  file metadata |
+--------------------------------------------------
+数据包由三部分组成：文件头(header)、唯一数据块集(unique block data)和逻辑文件元数据(file metadata)。
+其中，header为一个结构体，定义了数据块大小、唯一数据块数量、数据块ID大小、包中文件数量、元数据在包中
+的位置等元信息。文件头后紧接就存储着所有唯一的数据块，大小和数量由文件头中元信息指示。在数据块之后，
+就是数据包中文件的逻辑表示元数据，由多个实体组成，结构如下所示，一个实体表示一个文件。解包时根据文件
+的元数据，逐一提取数据块，还原出当初的物理文件。
+
+逻辑文件的元数据表示：
+-----------------------------------------------------------------
+|  entry header  |  pathname  |  entry data  |  last block data |
+-----------------------------------------------------------------
+逻辑文件的实体头中记录着文件名长度、数据块数量、数据块ID大小和最后一个数据块大小等信息。紧接着是文件名
+数据，长度在实体头中定义。文件名数据之后，存储着一组唯一数据块的编号，编号与唯一数据块集中的数据块一一
+对应。最后存储着文件最后一个数据块，由于这个数据块大小通常比正常数据块小，重复概率非常小，因此单独保存。
+
+更详细信息请参见 http://blog.csdn.net/liuben/archive/2010/01/09/5166538.aspx
+
+dedup util目前处于pre-alpha开发阶段，支持文件打包、解包、追加文件、删除文件、罗列包中文件等功能。
+初步的测试结果显示，即使在不明确数据是否具备较高重复率的情况下，dedup技术也能较明显地减少数据包的数据量，
+产生的数据包比Tar工具的要小。
+
+[源码]
+项目URL: 	https://sourceforge.net/projects/deduputil
+SVN代码库URL: 	https://deduputil.svn.sourceforge.net/svnroot/deduputil
+
+[编译]
+1.获取源码
+  svn co https://deduputil.svn.sourceforge.net/svnroot/deduputil deduputil
+
+2.安装libz-dev
+  apt-get install libz-dev
+  如果不支持apt-get，请采用其他途径安装。
+
+3.编译安装
+  ./gen.sh
+  ./configure
+  make
+  make install
+
+[命令行]
+Usage: dedup [OPTION...] [FILE]...
+dedup tool packages files with deduplicaton technique.
+
+Examples:
+  dedup -c foobar.ded foo bar    # Create foobar.ded from files foo and bar.
+  dedup -a foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.
+  dedup -r foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.
+  dedup -t foobar.ded            # List all files in foobar.ded.
+  dedup -x foobar.ded            # Extract all files from foobar.ded.
+
+Options:
+  -c, --creat      create a new archive
+  -x, --extract    extrace files from an archive
+  -a, --append     append files to an archive
+  -r, --remove     remove files from an archive
+  -t, --list       list files in an archive
+  -z, --compress   filter the archive through zlib compression
+  -b, --block      block size for deduplication, default is 4096
+  -H, --hashtable  hashtable backet number, default is 10240
+  -d, --directory  change to directory, default is PWD
+  -v, --verbose    print verbose messages
+  -h, --help       give this help list
+
+[运行平台]
+---------
+目前仅在Linux平台开发测试，其他平台未作评测。
+
+[TODO]
+1. 数据块碰撞问题
+  虽然MD5产生的碰撞的概率非常小，但仍然存在发生小概率事件的可能性。需要采用技术手段解决碰撞问题，这样
+才能保证数据安全，让用户放心使用。
+
+2. 变长数据块
+  目前是定长数据块的实现，技术上较为简单，变长数据块可能会获得更高的数据压缩率。
+
+3. 相似文件识别
+  如果两个文件只有很小的差别，比如在某处插入了若干字节，找出这些数据块并单独处理，可能会提高数据压缩率。
+
+[作者]
+刘爱贵，专注于存储技术，关注数据挖掘和分布式计算，Aigui.Liu@gmail.com
+
+2010.06.02
