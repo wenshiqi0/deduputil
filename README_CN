@@ -68,7 +68,6 @@ Options:
   -h, --help       give this help list
 
 [运行平台]
----------
 目前仅在Linux平台开发测试，其他平台未作评测。
 
 [TODO]
