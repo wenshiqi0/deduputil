@@ -515,7 +515,20 @@ _DEDUP_PKG_APPEND_EXIT:
 	return ret;
 }
 
-int dedup_package_remove(char *file_pkg, char *file_remove, int verbose)
+int file_in_lists(char *filepath, int files_nr, char **files_list)
+{
+	int i;
+
+	for (i = 0; i < files_nr; i++)
+	{
+		if (0 == strcmp(filepath, files_list[i]))
+			return 0;
+	}
+
+	return -1;
+}
+
+int dedup_package_remove(char *file_pkg, int files_nr, char **files_remove, int verbose)
 {
 	int fd_pkg, fd_bdata, fd_mdata, ret = 0;
 	dedup_package_header dedup_pkg_hdr;
@@ -595,7 +608,7 @@ int dedup_package_remove(char *file_pkg, char *file_remove, int verbose)
 		memset(pathname, 0, MAX_PATH_LEN);
 		read(fd_pkg, pathname, dedup_entry_hdr.path_len);
 		/* discard file to be removed */
-		if (strcmp(pathname, file_remove) != 0)
+		if (file_in_lists(pathname, files_nr, files_remove) != 0)
 		{
 			metadata = (block_id_t *)malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 			if (NULL == metadata)
@@ -658,7 +671,7 @@ int dedup_package_remove(char *file_pkg, char *file_remove, int verbose)
 		
 		memset(pathname, 0, MAX_PATH_LEN);
 		read(fd_pkg, pathname, dedup_entry_hdr.path_len);
-		if (strcmp(pathname, file_remove) != 0)
+		if (file_in_lists(pathname, files_nr, files_remove) != 0)
 		{
 			metadata = (block_id_t *)malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 			if (NULL == metadata)
@@ -882,7 +895,7 @@ _DEDUP_PKG_EXTRACT_EXIT:
 void usage()
 {
 	printf("Usage: dedup [OPTION...] [FILE]...\n");
-	printf("dedup tool packages files with deduplicaton technique.\n\n");
+	printf("dedup util packages files with deduplicaton technique.\n\n");
 	printf("Examples:\n");
 	printf("  dedup -c foobar.ded foo bar    # Create foobar.ded from files foo and bar.\n");
 	printf("  dedup -a foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.\n");
@@ -901,7 +914,7 @@ void usage()
 	printf("  -d, --directory  change to directory, default is PWD\n");
 	printf("  -v, --verbose    print verbose messages\n");
 	printf("  -h, --help       give this help list\n\n");
-	printf("\nReport bugs to <Aigui.Liu@gmail.com>.\n");
+	printf("Report bugs to <Aigui.Liu@gmail.com>.\n");
 }
 
 int main(int argc, char *argv[])
@@ -1015,7 +1028,7 @@ int main(int argc, char *argv[])
 		ret = dedup_package_append(argc - optind -1 , argv + optind + 1, tmp_file, bverbose);
 		break;
 	case DEDUP_REMOVE:
-		ret = dedup_package_remove(tmp_file, argv[optind + 1], bverbose);
+		ret = dedup_package_remove(tmp_file, argc - optind -1, argv + optind + 1, bverbose);
 		break;
 	case DEDUP_LIST:
 		ret = dedup_package_list(tmp_file, bverbose);
