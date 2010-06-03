@@ -5,6 +5,8 @@ dedup util is a lightweight open-source file packing tool. It is based on
 block-level data de-duplication technology, and can reduce the data capacity
 to save storage space.
 
+NOTE: no MD5 collsion problem, but lose some performance.
+
 Internal data layout of dedup package as followed:
 deduplication file data layout (in src/dedup.h)
 --------------------------------------------------

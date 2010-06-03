@@ -41,6 +41,48 @@ void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 	printf("metadata_offset = %lld\n\n", dedup_pkg_hdr.metadata_offset);
 }
 
+int block_cmp(char *buf, int fd_bdata, unsigned int bindex, unsigned int len)
+{
+	int i, ret = 0;
+	char *block_buf = NULL;
+
+	if (-1 == lseek(fd_bdata, bindex * len, SEEK_SET))
+	{
+		perror("lseek in block_cmp");
+		ret = -1;
+		goto _BLOCK_CMP_EXIT;
+	}
+
+	block_buf = (char *)malloc(len);
+	if (NULL == block_buf)
+	{
+		perror("malloc in block_cmp");
+		ret = -1;
+		goto _BLOCK_CMP_EXIT;
+	}
+
+	if (len != read(fd_bdata, block_buf, len))
+	{
+		perror("read in block_cmp");
+		ret = -1;
+		goto _BLOCK_CMP_EXIT;
+	}
+
+	for (i = 0; i < len; i++)
+	{
+		if (buf[i] != block_buf[i])
+		{
+			ret = 1;
+			break;
+		}
+	}
+	
+_BLOCK_CMP_EXIT:
+	if (block_buf) free(block_buf);
+	lseek(fd_bdata, 0, SEEK_END);
+	return ret;
+}
+
 int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
 {
 	int fd;
@@ -89,24 +131,55 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 		/* calculate md5 */
 		md5(buf, rwsize, md5_checksum);
 
-		/* check hashtable with hashkey */
+		/* check hashtable with hashkey 
+		   NOTE: no md5 collsion problem, but lose some performace 
+		   hashtable entry format: (md5_key, block_id list)
+		   +--------------------------------+
+		   | id num | id1 | id2 | ... | idn |
+		   +--------------------------------+
+		*/
+		unsigned int cbindex;
+		int bflag = 0;
 		unsigned int *bindex = (block_id_t *)hash_value((void *)md5_checksum, htable);
-		if (bindex == NULL)
+
+		/* the block exists */
+		if (bindex != NULL)
 		{
-			bindex = (unsigned int *)malloc(BLOCK_ID_SIZE);
+			int i;
+			for (i = 0; i < *bindex; i++)
+			{
+				if (0 == block_cmp(buf, fd_bdata, *(bindex + i + 1), g_block_size))
+				{
+					cbindex = *(bindex + i + 1);
+					bflag = 1;
+					break;
+				}
+			}
+		}
+
+		/* insert hash entry and write unique block into bdata*/
+		if (bindex == NULL || (bindex != NULL && bflag == 0))
+		{
+			if (bindex == NULL)
+				bflag = 1;
+
+			bindex = (bflag) ? (block_id_t *)malloc(BLOCK_ID_SIZE * 2) :
+				(block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 1));
 			if (NULL == bindex)
 			{
-				perror("malloc in dedup_regfile");
+				perror("malloc/realloc in dedup_regfile");
 				break;
 			}
-			/* insert hash entry and write unique block into bdata*/
-			*bindex = g_unique_block_nr;
+
+			*bindex = (bflag) ? 1 : (*bindex) + 1;
+			*(bindex + *bindex) = g_unique_block_nr;
+			cbindex = g_unique_block_nr;
 			hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
 			write(fd_bdata, buf, rwsize);
 			g_unique_block_nr++;
 		}
 
-		metadata[pos] = *bindex;
+		metadata[pos] = cbindex;
 		memset(buf, 0, g_block_size);
 		memset(md5_checksum, 0, 16 + 1);
 		pos++;
@@ -360,6 +433,7 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 		ret = -1;
 		goto _DEDUP_APPEND_PREPARE_EXIT;
 	}
+
 	for(i = 0; i < dedup_pkg_hdr->block_num; i++)
 	{
 		rwsize = read(fd_pkg, buf, g_block_size);
@@ -370,15 +444,29 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 		}
 		write(fd_bdata, buf, rwsize);
 
+		/* 
+		  calculate md5 of every unique block and insert into hashtable 
+		  hashtable entry format: (md5_key, block_id list)
+		  +--------------------------------+
+		  | id num | id1 | id2 | ... | idn |
+		  +--------------------------------+
+		 */
 		md5(buf, rwsize, md5_checksum);
-		bindex = (unsigned int *)malloc(BLOCK_ID_SIZE);
-		if (NULL == bindex)
-		{
+                int bflag = 0;
+                unsigned int *bindex = (block_id_t *)hash_value((void *)md5_checksum, htable);
+		bflag = (bindex == NULL) ? 1 : 0;
+		bindex = (bflag) ? (block_id_t *)malloc(BLOCK_ID_SIZE * 2) :
+                                (block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 1));
+                if (NULL == bindex)
+                {
+			perror("malloc/realloc in dedup_append_prepare");
 			ret = -1;
 			goto _DEDUP_APPEND_PREPARE_EXIT;
-		}
-		*bindex = i;
-		hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
+                }
+
+                *bindex = (bflag) ? 1 : (*bindex) + 1;
+                *(bindex + *bindex) = i;
+                hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
 	}
 	
 	/* get mdata */
