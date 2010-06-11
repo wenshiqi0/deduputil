@@ -2,6 +2,9 @@ v1.0 release -
 v1.0 beta -
 v1.0 alpha - 
 
+v1.0 - 2010.06.11
+  - fix bug: same file can be saved to package more than one time
+
 v1.0 - 2010.06.03
   - resolve md5 collsion problem, but lose some performance
   - fix remove bug: can only remove one file every time

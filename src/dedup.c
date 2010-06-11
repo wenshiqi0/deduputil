@@ -22,6 +22,31 @@ static unsigned int g_block_size = BLOCK_SIZE;
 /* hashtable backet number */
 static unsigned int g_htab_backet_nr = BACKET_SIZE;
 
+/* hashtable for pathnames */
+static hashtable *g_htable = NULL;
+
+static int filename_exist(char *filename)
+{
+	return (NULL == hash_value((void *)filename, g_htable)) ? 0 : 1;
+}
+
+static int filename_checkin(char *filename)
+{
+	unsigned int *flag = NULL;
+
+	flag = (unsigned int *) malloc (sizeof(unsigned int));
+	if (NULL == flag)
+	{
+		perror("malloc in filename_checkin");
+		return errno;
+	}
+
+	*flag = 1;
+	hash_insert((void *)strdup(filename), (void *)flag, g_htable);
+
+	return 0;
+}
+
 void show_md5(unsigned char md5_checksum[16])
 {
 	int i;
@@ -93,6 +118,14 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 	unsigned int block_num = 0;
 	struct stat statbuf;
 	dedup_entry_header dedup_entry_hdr;
+
+
+	/* check if the filename already exists */
+	if (filename_exist(fullpath))
+	{
+		if (verbose) printf("Warning: %s already exists in package\n", fullpath);
+		return 0;
+	} 
 
 	if (-1 == (fd = open(fullpath, O_RDONLY)))
 	{
@@ -198,6 +231,7 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 	write(fd_mdata, buf, rwsize);
 
 	g_regular_file_nr++;
+	filename_checkin(fullpath);
 
 _DEDUP_REGFILE_EXIT:
 	close(fd);
@@ -414,6 +448,9 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 	char *buf = NULL;
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned int *bindex = NULL;
+	dedup_entry_header dedup_entry_hdr;
+	unsigned long long offset;
+	char pathname[MAX_PATH_LEN] = {0};
 
 	if (read(fd_pkg, dedup_pkg_hdr, DEDUP_PKGHDR_SIZE) != DEDUP_PKGHDR_SIZE)
 	{
@@ -470,6 +507,33 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 	}
 	
 	/* get mdata */
+	offset = dedup_pkg_hdr->metadata_offset;
+        for (i = 0; i < dedup_pkg_hdr->file_num; ++i)
+        {
+                if (lseek(fd_pkg, offset, SEEK_SET) == -1)
+                {
+                        ret = errno;
+                        break;
+                }
+
+                if (read(fd_pkg, &dedup_entry_hdr, DEDUP_ENTRYHDR_SIZE) != DEDUP_ENTRYHDR_SIZE)
+                {
+                        ret = errno;
+                        break;
+                }
+
+                /* read pathname from  deduped package opened */
+                memset(pathname, 0, MAX_PATH_LEN);
+                read(fd_pkg, pathname, dedup_entry_hdr.path_len);
+		if (0 == filename_exist(pathname))
+			filename_checkin(pathname);
+
+                offset += DEDUP_ENTRYHDR_SIZE;
+                offset += dedup_entry_hdr.path_len;
+                offset += dedup_entry_hdr.block_num * dedup_entry_hdr.entry_size;
+                offset += dedup_entry_hdr.last_block_size;
+        }
+
 	if (-1 == lseek(fd_pkg, dedup_pkg_hdr->metadata_offset, SEEK_SET))
 		goto _DEDUP_APPEND_PREPARE_EXIT;
 	while(rwsize = read(fd_pkg, buf, g_block_size))
@@ -1090,6 +1154,13 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	g_htable = create_hashtable(g_htab_backet_nr);
+	if (NULL == g_htable)
+	{
+		perror("create_hashtable in main");
+		return -1;
+	}
+
 	/* uncompress package if needed */
 	if (bz && dedup_op != DEDUP_CREAT)
 	{
@@ -1129,6 +1200,7 @@ int main(int argc, char *argv[])
 		ret = zlib_compress_file(tmp_file, argv[optind]);
 		unlink(tmp_file);
 	}
-	
+
+	if (g_htable) hash_free(g_htable);
 	return ret;
 }
