@@ -76,7 +76,7 @@ int hlist_update(struct hashentry *root, void *key, void *data,
     struct hashentry *pos;
     for(pos = root; pos != NULL; pos = pos->next ) {
         if ( compare(key, pos->key) ) {
-            free(pos->data);    
+	    //free(pos->data);    
             pos->data = data;
             free(key);
             return 0;

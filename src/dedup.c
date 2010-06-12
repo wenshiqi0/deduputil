@@ -38,7 +38,7 @@ static int filename_checkin(char *filename)
 	if (NULL == flag)
 	{
 		perror("malloc in filename_checkin");
-		return errno;
+		exit(errno);
 	}
 
 	*flag = 1;
@@ -73,24 +73,21 @@ int block_cmp(char *buf, int fd_bdata, unsigned int bindex, unsigned int len)
 
 	if (-1 == lseek(fd_bdata, bindex * len, SEEK_SET))
 	{
-		perror("lseek in block_cmp");
-		ret = -1;
-		goto _BLOCK_CMP_EXIT;
+		perror("1 lseek in block_cmp");
+		exit(errno);
 	}
 
 	block_buf = (char *)malloc(len);
 	if (NULL == block_buf)
 	{
 		perror("malloc in block_cmp");
-		ret = -1;
-		goto _BLOCK_CMP_EXIT;
+		exit(errno);
 	}
 
 	if (len != read(fd_bdata, block_buf, len))
 	{
 		perror("read in block_cmp");
-		ret = -1;
-		goto _BLOCK_CMP_EXIT;
+		exit(errno);
 	}
 
 	for (i = 0; i < len; i++)
@@ -104,7 +101,12 @@ int block_cmp(char *buf, int fd_bdata, unsigned int bindex, unsigned int len)
 	
 _BLOCK_CMP_EXIT:
 	if (block_buf) free(block_buf);
-	lseek(fd_bdata, 0, SEEK_END);
+	if ( -1 == lseek(fd_bdata, 0, SEEK_END))
+	{
+		perror("2 lseek in block_cmp");
+		exit(errno);
+	}
+
 	return ret;
 }
 
@@ -197,11 +199,11 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 				bflag = 1;
 
 			bindex = (bflag) ? (block_id_t *)malloc(BLOCK_ID_SIZE * 2) :
-				(block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 1));
+				(block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 2));
 			if (NULL == bindex)
 			{
 				perror("malloc/realloc in dedup_regfile");
-				break;
+				exit(errno);
 			}
 
 			*bindex = (bflag) ? 1 : (*bindex) + 1;
@@ -493,7 +495,7 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
                 unsigned int *bindex = (block_id_t *)hash_value((void *)md5_checksum, htable);
 		bflag = (bindex == NULL) ? 1 : 0;
 		bindex = (bflag) ? (block_id_t *)malloc(BLOCK_ID_SIZE * 2) :
-                                (block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 1));
+                                (block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 2));
                 if (NULL == bindex)
                 {
 			perror("malloc/realloc in dedup_append_prepare");

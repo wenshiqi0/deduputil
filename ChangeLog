@@ -1,6 +1,9 @@
 v1.0 release -
 v1.0 beta -
-v1.0 alpha - 
+v1.0 alpha -
+ 
+v1.0 - 2010.06.12
+  - fix bug: crash when md5 collision happens
 
 v1.0 - 2010.06.11
   - fix bug: same file can be saved to package more than one time
