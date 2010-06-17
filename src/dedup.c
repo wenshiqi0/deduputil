@@ -66,6 +66,13 @@ void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 	printf("metadata_offset = %lld\n\n", dedup_pkg_hdr.metadata_offset);
 }
 
+void dedup_clean()
+{
+	unlink(TMP_FILE);
+	unlink(BDATA_FILE);
+	unlink(MDATA_FILE);
+}
+
 int block_cmp(char *buf, int fd_bdata, unsigned int bindex, unsigned int len)
 {
 	int i, ret = 0;
@@ -112,7 +119,7 @@ _BLOCK_CMP_EXIT:
 
 int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
 {
-	int fd;
+	int fd, ret = 0;
 	char *buf = NULL;
 	unsigned int rwsize, pos;
 	unsigned char md5_checksum[16 + 1] = {0};
@@ -131,13 +138,14 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 
 	if (-1 == (fd = open(fullpath, O_RDONLY)))
 	{
-		perror("open regulae file");
+		perror("open regular file");
 		return errno;
 	}
 
 	if (-1 == fstat(fd, &statbuf))
 	{
 		perror("fstat regular file");
+		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
 	block_num = statbuf.st_size / g_block_size;
@@ -146,6 +154,7 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 	if (metadata == NULL)
 	{
 		perror("malloc metadata for regfile");
+		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
@@ -153,6 +162,7 @@ int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashta
 	if (buf == NULL)
 	{
 		perror("malloc buf for regfile");
+		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
@@ -240,7 +250,7 @@ _DEDUP_REGFILE_EXIT:
 	if (metadata) free(metadata);
 	if (buf) free(buf);
 
-	return 0;
+	return ret;
 }
 
 int dedup_dir(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
@@ -249,6 +259,7 @@ int dedup_dir(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable 
 	struct dirent *dirp;
 	struct stat statbuf;
 	char subpath[MAX_PATH_LEN] = {0};
+	int ret;
 
 	if (NULL == (dp = opendir(fullpath)))
 	{
@@ -267,7 +278,11 @@ int dedup_dir(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable 
 				printf("%s\n", subpath);
 
 			if (S_ISREG(statbuf.st_mode)) 
-				dedup_regfile(subpath, prepos, fd_bdata, fd_mdata, htable,verbose);
+			{
+				ret = dedup_regfile(subpath, prepos, fd_bdata, fd_mdata, htable,verbose);
+				if (ret != 0)
+					exit(ret);
+			}
 			else if (S_ISDIR(statbuf.st_mode))
 				dedup_dir(subpath, prepos, fd_bdata, fd_mdata, htable, verbose);
 		}
@@ -407,8 +422,12 @@ int dedup_package_list(char *src_file, int verbose)
 		goto _DEDUP_PKG_LIST_EXIT;
 	}
 
-	if (verbose)
-		show_pkg_header(dedup_pkg_hdr);
+	if (dedup_pkg_hdr.magic_num != DEDUP_MAGIC_NUM)
+	{
+		fprintf(stderr, "magic number is error, maybe this file is not a dedup package.\n");
+		ret = -1;
+		goto _DEDUP_PKG_LIST_EXIT;
+	}
 
 	offset = dedup_pkg_hdr.metadata_offset;
 	for (i = 0; i < dedup_pkg_hdr.file_num; ++i)
@@ -436,6 +455,9 @@ int dedup_package_list(char *src_file, int verbose)
 		offset += dedup_entry_hdr.last_block_size;
 	}
 
+	if (verbose)
+		show_pkg_header(dedup_pkg_hdr);
+
 _DEDUP_PKG_LIST_EXIT:
 	close(fd);
 
@@ -460,6 +482,13 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 		return errno;
 	}
 
+	if (dedup_pkg_hdr->magic_num != DEDUP_MAGIC_NUM)
+	{
+		fprintf(stderr, "magic number is error, maybe this file is not a dedup package.\n");
+		ret = -1;
+		goto _DEDUP_APPEND_PREPARE_EXIT;
+	}
+
 	/* get package header info */
 	g_unique_block_nr = dedup_pkg_hdr->block_num;
 	g_regular_file_nr = dedup_pkg_hdr->file_num;
@@ -469,7 +498,7 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 	buf = (char *)malloc(g_block_size);
 	if (buf == NULL)
 	{
-		ret = -1;
+		ret = errno;
 		goto _DEDUP_APPEND_PREPARE_EXIT;
 	}
 
@@ -478,7 +507,7 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 		rwsize = read(fd_pkg, buf, g_block_size);
 		if (rwsize != g_block_size)
 		{
-			ret = -1;
+			ret = errno;
 			goto _DEDUP_APPEND_PREPARE_EXIT;
 		}
 		write(fd_bdata, buf, rwsize);
@@ -499,7 +528,7 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
                 if (NULL == bindex)
                 {
 			perror("malloc/realloc in dedup_append_prepare");
-			ret = -1;
+			ret = errno;
 			goto _DEDUP_APPEND_PREPARE_EXIT;
                 }
 
@@ -618,7 +647,10 @@ int dedup_package_append(int path_nr, char **src_paths, char *dest_file, int ver
 			prepos++;
 
 			if (S_ISREG(statbuf.st_mode))
-				dedup_regfile(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
+			{
+				ret = dedup_regfile(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
+				if (ret != 0) exit(ret);
+			}
 			else
 				dedup_dir(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
 		}	
@@ -726,6 +758,14 @@ int dedup_package_remove(char *file_pkg, int files_nr, char **files_remove, int 
                 ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
+
+	if (dedup_pkg_hdr.magic_num != DEDUP_MAGIC_NUM)
+	{
+		fprintf(stderr, "magic number is error, maybe this file is not a dedup packakge.\n");
+		ret = -1;
+		goto _DEDUP_PKG_REMOVE_EXIT;
+	}
+
 	g_unique_block_nr = dedup_pkg_hdr.block_num;
 	g_regular_file_nr = dedup_pkg_hdr.file_num;
 	g_block_size = dedup_pkg_hdr.block_size;
@@ -995,6 +1035,13 @@ int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, int ver
 		goto _DEDUP_PKG_EXTRACT_EXIT;
 	}
 
+	if (dedup_pkg_hdr.magic_num != DEDUP_MAGIC_NUM)
+	{
+		fprintf(stderr, "magic number is error, maybe this file is not a dedup pacakge.\n");
+		ret = -1;
+		goto _DEDUP_PKG_EXTRACT_EXIT;
+	}
+
 	if (verbose)
 		show_pkg_header(dedup_pkg_hdr);
 	g_block_size = dedup_pkg_hdr.block_size;
@@ -1204,5 +1251,6 @@ int main(int argc, char *argv[])
 	}
 
 	if (g_htable) hash_free(g_htable);
+	dedup_clean();
 	return ret;
 }
