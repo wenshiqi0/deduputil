@@ -14,7 +14,7 @@ zfile_SOURCES = libz.c
 zfile_CFLAGS = -DTESTZLIB
 zfile_LDADD = -lz
 
-dedup_SOURCES = dedup.c md5.c hashtable.c libz.c
+dedup_SOURCES = dedup.c dedup_fsp.c md5.c hashtable.c libz.c
 dedup_LDADD = -lz
 
 bdiff_SOURCES = bdiff.c md5.c hashtable.c

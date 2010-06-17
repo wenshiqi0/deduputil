@@ -10,18 +10,6 @@
 extern "C" {
 #endif
 
-/* 
- * deduplication file data layout
- * --------------------------------------------------
- * |  header  |  unique block data |  file metadata |
- * --------------------------------------------------
- *
- * file metedata entry layout
- * -----------------------------------------------------------------
- * |  entry header  |  pathname  |  entry data  |  last block data |
- * -----------------------------------------------------------------
- */
-
 typedef unsigned int block_id_t;
 
 #define BLOCK_SIZE	4096	 /* 4K Bytes */
@@ -41,6 +29,12 @@ typedef struct _dedup_package_header {
 } dedup_package_header;
 #define DEDUP_PKGHDR_SIZE	(sizeof(dedup_package_header))
 
+/* logic block entry */
+typedef struct _dedup_logic_block_entry {
+	unsigned long long block_offset;
+	unsigned int block_len;
+} dedup_logic_block_entry;
+
 /* deduplication metadata entry header */
 typedef struct _dedup_entry_header {
 	unsigned int path_len;
@@ -59,9 +53,21 @@ enum DEDUP_OPERATIONS {
 	DEDUP_LIST
 };
 
+#define CHUNK_FSP	"FSP"	/* fixed-sized partition */
+#define CHUNK_CDC	"CDC"	/* content-defined chunking */
+#define CHUNK_SB	"SB"	/* sliding block */
+enum DEDUP_CHUNK_ALGORITHMS {
+	DEDUP_CHUNK_FSP = 0,
+	DEDUP_CHUNK_CDC,
+	DEDUP_CHUNK_SB
+};
+
 #define TMP_FILE 	".dedup_d7d1b627a34d5b56dae225cc4f03ddf7\0"
 #define MDATA_FILE	".mdata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
 #define BDATA_FILE	".bdata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
+
+void usage();
+int dedup_fsp(int argc, char *argv[]);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,7 @@ v1.0 beta -
 
 v1.0 alpha - 2010.06.17
   - release alpha version
+  - fine tune program structure 
  
 v1.0 - 2010.06.12
   - fix bug: crash when md5 collision happens

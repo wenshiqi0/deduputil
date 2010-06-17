@@ -48,8 +48,8 @@ PROGRAMS = $(bin_PROGRAMS)
 am_bdiff_OBJECTS = bdiff.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT)
 bdiff_OBJECTS = $(am_bdiff_OBJECTS)
 bdiff_LDADD = $(LDADD)
-am_dedup_OBJECTS = dedup.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT) \
-	libz.$(OBJEXT)
+am_dedup_OBJECTS = dedup.$(OBJEXT) dedup_fsp.$(OBJEXT) md5.$(OBJEXT) \
+	hashtable.$(OBJEXT) libz.$(OBJEXT)
 dedup_OBJECTS = $(am_dedup_OBJECTS)
 dedup_DEPENDENCIES =
 am_hashtest_OBJECTS = hashtest.$(OBJEXT) hash.$(OBJEXT) md5.$(OBJEXT)
@@ -79,11 +79,11 @@ DIST_SOURCES = $(bdiff_SOURCES) $(dedup_SOURCES) $(hashtest_SOURCES) \
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
-ACLOCAL = ${SHELL} /opt/workspace/deduputil/missing --run aclocal-1.10
-AMTAR = ${SHELL} /opt/workspace/deduputil/missing --run tar
-AUTOCONF = ${SHELL} /opt/workspace/deduputil/missing --run autoconf
-AUTOHEADER = ${SHELL} /opt/workspace/deduputil/missing --run autoheader
-AUTOMAKE = ${SHELL} /opt/workspace/deduputil/missing --run automake-1.10
+ACLOCAL = ${SHELL} /opt/workspace/deduputil.sf/missing --run aclocal-1.10
+AMTAR = ${SHELL} /opt/workspace/deduputil.sf/missing --run tar
+AUTOCONF = ${SHELL} /opt/workspace/deduputil.sf/missing --run autoconf
+AUTOHEADER = ${SHELL} /opt/workspace/deduputil.sf/missing --run autoheader
+AUTOMAKE = ${SHELL} /opt/workspace/deduputil.sf/missing --run automake-1.10
 AWK = mawk
 CC = gcc
 CCDEPMODE = depmode=gcc3
@@ -108,7 +108,7 @@ LDFLAGS =
 LIBOBJS = 
 LIBS = -lz -lz 
 LTLIBOBJS = 
-MAKEINFO = ${SHELL} /opt/workspace/deduputil/missing --run makeinfo
+MAKEINFO = ${SHELL} /opt/workspace/deduputil.sf/missing --run makeinfo
 MKDIR_P = /bin/mkdir -p
 OBJEXT = o
 PACKAGE = dedup
@@ -123,10 +123,10 @@ SET_MAKE =
 SHELL = /bin/bash
 STRIP = 
 VERSION = 0.1
-abs_builddir = /opt/workspace/deduputil/src
-abs_srcdir = /opt/workspace/deduputil/src
-abs_top_builddir = /opt/workspace/deduputil
-abs_top_srcdir = /opt/workspace/deduputil
+abs_builddir = /opt/workspace/deduputil.sf/src
+abs_srcdir = /opt/workspace/deduputil.sf/src
+abs_top_builddir = /opt/workspace/deduputil.sf
+abs_top_srcdir = /opt/workspace/deduputil.sf
 ac_ct_CC = gcc
 am__include = include
 am__leading_dot = .
@@ -145,7 +145,7 @@ host_alias =
 htmldir = ${docdir}
 includedir = ${prefix}/include
 infodir = ${datarootdir}/info
-install_sh = $(SHELL) /opt/workspace/deduputil/install-sh
+install_sh = $(SHELL) /opt/workspace/deduputil.sf/install-sh
 libdir = ${exec_prefix}/lib
 libexecdir = ${exec_prefix}/libexec
 localedir = ${datarootdir}/locale
@@ -174,7 +174,7 @@ hashtest_SOURCES = hashtest.c hash.c md5.c
 zfile_SOURCES = libz.c
 zfile_CFLAGS = -DTESTZLIB
 zfile_LDADD = -lz
-dedup_SOURCES = dedup.c md5.c hashtable.c libz.c
+dedup_SOURCES = dedup.c dedup_fsp.c md5.c hashtable.c libz.c
 dedup_LDADD = -lz
 bdiff_SOURCES = bdiff.c md5.c hashtable.c
 all: all-am
@@ -257,6 +257,7 @@ distclean-compile:
 
 include ./$(DEPDIR)/bdiff.Po
 include ./$(DEPDIR)/dedup.Po
+include ./$(DEPDIR)/dedup_fsp.Po
 include ./$(DEPDIR)/hash.Po
 include ./$(DEPDIR)/hashtable.Po
 include ./$(DEPDIR)/hashtest.Po
