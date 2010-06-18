@@ -1,3 +1,15 @@
+/* 
+ * deduplication file data layout
+ * +------------------------------------------------+
+ * |  header  |  unique block data |  file metadata |
+ * +------------------------------------------------+
+ *
+ * file metedata entry layout
+ * +---------------------------------------------------------------+
+ * |  entry header  |  pathname  |  entry data  |  last block data |
+ * +---------------------------------------------------------------+
+ */
+
 #ifndef _DEDUP_H
 #define _DEDUP_H
 
@@ -65,9 +77,6 @@ enum DEDUP_CHUNK_ALGORITHMS {
 #define TMP_FILE 	".dedup_d7d1b627a34d5b56dae225cc4f03ddf7\0"
 #define MDATA_FILE	".mdata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
 #define BDATA_FILE	".bdata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
-
-void usage();
-int dedup_fsp(int argc, char *argv[]);
 
 #ifdef __cplusplus
 }

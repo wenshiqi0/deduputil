@@ -40,31 +40,14 @@ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
-am__EXEEXT_1 = md5$(EXEEXT) hashtest$(EXEEXT) zfile$(EXEEXT) \
-	dedup$(EXEEXT) bdiff$(EXEEXT)
+am__EXEEXT_1 = dedup$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
-am_bdiff_OBJECTS = bdiff.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT)
-bdiff_OBJECTS = $(am_bdiff_OBJECTS)
-bdiff_LDADD = $(LDADD)
-am_dedup_OBJECTS = dedup.$(OBJEXT) dedup_fsp.$(OBJEXT) md5.$(OBJEXT) \
-	hashtable.$(OBJEXT) libz.$(OBJEXT)
+am_dedup_OBJECTS = dedup.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT) \
+	libz.$(OBJEXT)
 dedup_OBJECTS = $(am_dedup_OBJECTS)
 dedup_DEPENDENCIES =
-am_hashtest_OBJECTS = hashtest.$(OBJEXT) hash.$(OBJEXT) md5.$(OBJEXT)
-hashtest_OBJECTS = $(am_hashtest_OBJECTS)
-hashtest_LDADD = $(LDADD)
-am_md5_OBJECTS = md5-md5.$(OBJEXT)
-md5_OBJECTS = $(am_md5_OBJECTS)
-md5_LDADD = $(LDADD)
-md5_LINK = $(CCLD) $(md5_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o \
-	$@
-am_zfile_OBJECTS = zfile-libz.$(OBJEXT)
-zfile_OBJECTS = $(am_zfile_OBJECTS)
-zfile_DEPENDENCIES =
-zfile_LINK = $(CCLD) $(zfile_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I. -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -72,10 +55,8 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(bdiff_SOURCES) $(dedup_SOURCES) $(hashtest_SOURCES) \
-	$(md5_SOURCES) $(zfile_SOURCES)
-DIST_SOURCES = $(bdiff_SOURCES) $(dedup_SOURCES) $(hashtest_SOURCES) \
-	$(md5_SOURCES) $(zfile_SOURCES)
+SOURCES = $(dedup_SOURCES)
+DIST_SOURCES = $(dedup_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -165,18 +146,22 @@ target_alias =
 top_build_prefix = ../
 top_builddir = ..
 top_srcdir = ..
-CMDS = md5 hashtest zfile dedup bdiff
+
+#CMDS = dedup md5 hashtest zfile bdiff
+CMDS = dedup
 AM_CFLAGS = -g3 -Wall 
 AM_LDFLAGS = -L.
-md5_SOURCES = md5.c
-md5_CFLAGS = -DTEST
-hashtest_SOURCES = hashtest.c hash.c md5.c
-zfile_SOURCES = libz.c
-zfile_CFLAGS = -DTESTZLIB
-zfile_LDADD = -lz
-dedup_SOURCES = dedup.c dedup_fsp.c md5.c hashtable.c libz.c
+
+#md5_SOURCES = md5.c
+#md5_CFLAGS = -DTEST
+
+#hashtest_SOURCES = hashtest.c hash.c md5.c
+
+#zfile_SOURCES = libz.c
+#zfile_CFLAGS = -DTESTZLIB
+#zfile_LDADD = -lz
+dedup_SOURCES = dedup.c md5.c hashtable.c libz.c
 dedup_LDADD = -lz
-bdiff_SOURCES = bdiff.c md5.c hashtable.c
 all: all-am
 
 .SUFFIXES:
@@ -233,21 +218,9 @@ uninstall-binPROGRAMS:
 
 clean-binPROGRAMS:
 	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
-bdiff$(EXEEXT): $(bdiff_OBJECTS) $(bdiff_DEPENDENCIES) 
-	@rm -f bdiff$(EXEEXT)
-	$(LINK) $(bdiff_OBJECTS) $(bdiff_LDADD) $(LIBS)
 dedup$(EXEEXT): $(dedup_OBJECTS) $(dedup_DEPENDENCIES) 
 	@rm -f dedup$(EXEEXT)
 	$(LINK) $(dedup_OBJECTS) $(dedup_LDADD) $(LIBS)
-hashtest$(EXEEXT): $(hashtest_OBJECTS) $(hashtest_DEPENDENCIES) 
-	@rm -f hashtest$(EXEEXT)
-	$(LINK) $(hashtest_OBJECTS) $(hashtest_LDADD) $(LIBS)
-md5$(EXEEXT): $(md5_OBJECTS) $(md5_DEPENDENCIES) 
-	@rm -f md5$(EXEEXT)
-	$(md5_LINK) $(md5_OBJECTS) $(md5_LDADD) $(LIBS)
-zfile$(EXEEXT): $(zfile_OBJECTS) $(zfile_DEPENDENCIES) 
-	@rm -f zfile$(EXEEXT)
-	$(zfile_LINK) $(zfile_OBJECTS) $(zfile_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -255,16 +228,10 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-include ./$(DEPDIR)/bdiff.Po
 include ./$(DEPDIR)/dedup.Po
-include ./$(DEPDIR)/dedup_fsp.Po
-include ./$(DEPDIR)/hash.Po
 include ./$(DEPDIR)/hashtable.Po
-include ./$(DEPDIR)/hashtest.Po
 include ./$(DEPDIR)/libz.Po
-include ./$(DEPDIR)/md5-md5.Po
 include ./$(DEPDIR)/md5.Po
-include ./$(DEPDIR)/zfile-libz.Po
 
 .c.o:
 	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
@@ -279,34 +246,6 @@ include ./$(DEPDIR)/zfile-libz.Po
 #	source='$<' object='$@' libtool=no \
 #	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
 #	$(COMPILE) -c `$(CYGPATH_W) '$<'`
-
-md5-md5.o: md5.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(md5_CFLAGS) $(CFLAGS) -MT md5-md5.o -MD -MP -MF $(DEPDIR)/md5-md5.Tpo -c -o md5-md5.o `test -f 'md5.c' || echo '$(srcdir)/'`md5.c
-	mv -f $(DEPDIR)/md5-md5.Tpo $(DEPDIR)/md5-md5.Po
-#	source='md5.c' object='md5-md5.o' libtool=no \
-#	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
-#	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(md5_CFLAGS) $(CFLAGS) -c -o md5-md5.o `test -f 'md5.c' || echo '$(srcdir)/'`md5.c
-
-md5-md5.obj: md5.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(md5_CFLAGS) $(CFLAGS) -MT md5-md5.obj -MD -MP -MF $(DEPDIR)/md5-md5.Tpo -c -o md5-md5.obj `if test -f 'md5.c'; then $(CYGPATH_W) 'md5.c'; else $(CYGPATH_W) '$(srcdir)/md5.c'; fi`
-	mv -f $(DEPDIR)/md5-md5.Tpo $(DEPDIR)/md5-md5.Po
-#	source='md5.c' object='md5-md5.obj' libtool=no \
-#	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
-#	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(md5_CFLAGS) $(CFLAGS) -c -o md5-md5.obj `if test -f 'md5.c'; then $(CYGPATH_W) 'md5.c'; else $(CYGPATH_W) '$(srcdir)/md5.c'; fi`
-
-zfile-libz.o: libz.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(zfile_CFLAGS) $(CFLAGS) -MT zfile-libz.o -MD -MP -MF $(DEPDIR)/zfile-libz.Tpo -c -o zfile-libz.o `test -f 'libz.c' || echo '$(srcdir)/'`libz.c
-	mv -f $(DEPDIR)/zfile-libz.Tpo $(DEPDIR)/zfile-libz.Po
-#	source='libz.c' object='zfile-libz.o' libtool=no \
-#	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
-#	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(zfile_CFLAGS) $(CFLAGS) -c -o zfile-libz.o `test -f 'libz.c' || echo '$(srcdir)/'`libz.c
-
-zfile-libz.obj: libz.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(zfile_CFLAGS) $(CFLAGS) -MT zfile-libz.obj -MD -MP -MF $(DEPDIR)/zfile-libz.Tpo -c -o zfile-libz.obj `if test -f 'libz.c'; then $(CYGPATH_W) 'libz.c'; else $(CYGPATH_W) '$(srcdir)/libz.c'; fi`
-	mv -f $(DEPDIR)/zfile-libz.Tpo $(DEPDIR)/zfile-libz.Po
-#	source='libz.c' object='zfile-libz.obj' libtool=no \
-#	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
-#	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(zfile_CFLAGS) $(CFLAGS) -c -o zfile-libz.obj `if test -f 'libz.c'; then $(CYGPATH_W) 'libz.c'; else $(CYGPATH_W) '$(srcdir)/libz.c'; fi`
 
 ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
@@ -482,6 +421,8 @@ uninstall-am: uninstall-binPROGRAMS
 	mostlyclean-generic pdf pdf-am ps ps-am tags uninstall \
 	uninstall-am uninstall-binPROGRAMS
 
+
+#bdiff_SOURCES = bdiff.c md5.c hashtable.c
 
 clean:
 	rm -f $(CMDS) *.o *~
