@@ -1,15 +1,3 @@
-/* 
- * deduplication file data layout
- * +------------------------------------------------+
- * |  header  |  unique block data |  file metadata |
- * +------------------------------------------------+
- *
- * file metedata entry layout
- * +---------------------------------------------------------------+
- * |  entry header  |  pathname  |  entry data  |  last block data |
- * +---------------------------------------------------------------+
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -28,11 +16,17 @@ static unsigned int g_unique_block_nr = 0;
 /* regular file number in package */
 static unsigned int g_regular_file_nr = 0;
 
+/* offset in logic block data */
+static unsigned long long g_ldata_offset = 0;
+
 /* block length */
 static unsigned int g_block_size = BLOCK_SIZE;
 
 /* hashtable backet number */
 static unsigned int g_htab_backet_nr = BACKET_SIZE;
+
+/* chunking algorithms */
+static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_FSP;
 
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
@@ -64,51 +58,71 @@ static void show_md5(unsigned char md5_checksum[16])
 	int i;
 	for (i = 0; i < 16; i++)
 	{
-        	printf("%02x", md5_checksum[i]);
+        	fprintf(stderr, "%02x", md5_checksum[i]);
 	}
 }
 
 static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 {
-        printf("block_size = %d\n", dedup_pkg_hdr.block_size);
-        printf("block_num = %d\n", dedup_pkg_hdr.block_num);
-	printf("blockid_size = %d\n", dedup_pkg_hdr.blockid_size);
-	printf("magic_num = 0x%x\n", dedup_pkg_hdr.magic_num);
-	printf("file_num = %d\n", dedup_pkg_hdr.file_num);
-	printf("metadata_offset = %lld\n\n", dedup_pkg_hdr.metadata_offset);
+        fprintf(stderr, "block_size = %d\n", dedup_pkg_hdr.block_size);
+        fprintf(stderr, "block_num = %d\n", dedup_pkg_hdr.block_num);
+	fprintf(stderr, "blockid_size = %d\n", dedup_pkg_hdr.blockid_size);
+	fprintf(stderr, "magic_num = 0x%x\n", dedup_pkg_hdr.magic_num);
+	fprintf(stderr, "file_num = %d\n", dedup_pkg_hdr.file_num);
+	fprintf(stderr, "bdata_offset = %lld\n", dedup_pkg_hdr.bdata_offset);
+	fprintf(stderr, "metadata_offset = %lld\n\n", dedup_pkg_hdr.metadata_offset);
 }
 
 static void dedup_clean()
 {
 	unlink(TMP_FILE);
+	unlink(LDATA_FILE);
 	unlink(BDATA_FILE);
 	unlink(MDATA_FILE);
 }
 
-static int block_cmp(char *buf, int fd_bdata, unsigned int bindex, unsigned int len)
+static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex, unsigned int len)
 {
 	int i, ret = 0;
 	char *block_buf = NULL;
+	dedup_logic_block_entry dedup_lblock_entry;
 
-	if (-1 == lseek(fd_bdata, bindex * len, SEEK_SET))
+	/* read logic block information */
+	if (-1 == lseek(fd_ldata, bindex * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET))
 	{
-		perror("1 lseek in block_cmp");
+		perror("lseek in block_cmp");
 		exit(errno);
 	}
+	if (DEDUP_LOGIC_BLOCK_ENTRY_SIZE != read(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE))
+	{
+		perror("read in block_cmp");
+		exit(errno);
+	}
+	if (dedup_lblock_entry.block_len != len)
+	{
+		ret = 1;
+		goto _BLOCK_CMP_EXIT;
+	}
 
+	/* read phsyical block */
+	if (-1 == lseek(fd_bdata, dedup_lblock_entry.block_offset, SEEK_SET))
+	{
+		perror("lseek in block_cmp");
+		exit(errno);
+	}
 	block_buf = (char *)malloc(len);
 	if (NULL == block_buf)
 	{
 		perror("malloc in block_cmp");
 		exit(errno);
 	}
-
 	if (len != read(fd_bdata, block_buf, len))
 	{
 		perror("read in block_cmp");
 		exit(errno);
 	}
 
+	/* block compare */
 	for (i = 0; i < len; i++)
 	{
 		if (buf[i] != block_buf[i])
@@ -120,16 +134,16 @@ static int block_cmp(char *buf, int fd_bdata, unsigned int bindex, unsigned int 
 	
 _BLOCK_CMP_EXIT:
 	if (block_buf) free(block_buf);
-	if ( -1 == lseek(fd_bdata, 0, SEEK_END))
+	if ( -1 == lseek(fd_bdata, 0, SEEK_END) || -1 == lseek(fd_ldata, 0, SEEK_END))
 	{
-		perror("2 lseek in block_cmp");
+		perror("lseek in block_cmp");
 		exit(errno);
 	}
 
 	return ret;
 }
 
-static int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
+static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
 {
 	int fd, ret = 0;
 	char *buf = NULL;
@@ -137,26 +151,28 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata,
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned int *metadata = NULL;
 	unsigned int block_num = 0;
+	unsigned int block_expect_size;
 	struct stat statbuf;
 	dedup_entry_header dedup_entry_hdr;
+	dedup_logic_block_entry dedup_lblock_entry;
 
 
 	/* check if the filename already exists */
 	if (filename_exist(fullpath))
 	{
-		if (verbose) printf("Warning: %s already exists in package\n", fullpath);
+		if (verbose) fprintf(stderr, "Warning: %s already exists in package\n", fullpath);
 		return 0;
 	} 
 
 	if (-1 == (fd = open(fullpath, O_RDONLY)))
 	{
-		perror("open regular file");
+		perror("open regular file in dedup_regfile");
 		return errno;
 	}
 
 	if (-1 == fstat(fd, &statbuf))
 	{
-		perror("fstat regular file");
+		perror("fstat in dedup_regfile");
 		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
@@ -165,24 +181,26 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata,
 	metadata = (unsigned int *)malloc(BLOCK_ID_SIZE * block_num);
 	if (metadata == NULL)
 	{
-		perror("malloc metadata for regfile");
+		perror("malloc metadata in dedup_regfile");
 		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
-	buf = (char *)malloc(g_block_size);
+	buf = (char *)malloc(BLOCK_MAX_SIZE);
 	if (buf == NULL)
 	{
-		perror("malloc buf for regfile");
+		perror("malloc buf in dedup_regfile");
 		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
 	pos = 0;
-	while (rwsize = read(fd, buf, g_block_size)) 
+	/*  TODO: get expect block size */
+	block_expect_size = g_block_size;
+	while (rwsize = read(fd, buf, block_expect_size)) 
 	{
 		/* if the last block */
-		if (rwsize != g_block_size)
+		if (rwsize != block_expect_size)  /* TODO: maybe errors happen */
 			break;
 
 		/* calculate md5 */
@@ -205,7 +223,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata,
 			int i;
 			for (i = 0; i < *bindex; i++)
 			{
-				if (0 == block_cmp(buf, fd_bdata, *(bindex + i + 1), g_block_size))
+				if (0 == block_cmp(buf, fd_ldata, fd_bdata, *(bindex + i + 1), block_expect_size))
 				{
 					cbindex = *(bindex + i + 1);
 					bflag = 1;
@@ -214,7 +232,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata,
 			}
 		}
 
-		/* insert hash entry and write unique block into bdata*/
+		/* insert hash entry, write logic block into ldata, and write unique block into bdata*/
 		if (bindex == NULL || (bindex != NULL && bflag == 0))
 		{
 			if (bindex == NULL)
@@ -225,33 +243,52 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_bdata, int fd_mdata,
 			if (NULL == bindex)
 			{
 				perror("malloc/realloc in dedup_regfile");
-				exit(errno);
+				ret = errno;
+				goto _DEDUP_REGFILE_EXIT;
 			}
 
 			*bindex = (bflag) ? 1 : (*bindex) + 1;
 			*(bindex + *bindex) = g_unique_block_nr;
 			cbindex = g_unique_block_nr;
+			dedup_lblock_entry.block_offset = g_ldata_offset;
+			dedup_lblock_entry.block_len = rwsize;
 			hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
+			write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
 			write(fd_bdata, buf, rwsize);
 			g_unique_block_nr++;
+			g_ldata_offset += rwsize;
+		}
+
+		/* if metadata is not enough, realloc it */
+		if (pos >= block_num)
+		{
+			metadata = realloc(metadata, BLOCK_ID_SIZE * (block_num + BLOCK_ID_ALLOC_INC));
+			if (NULL == metadata)
+			{
+				perror("realloc in dedup_regfile");
+				ret = errno;
+				goto _DEDUP_REGFILE_EXIT;
+			}
 		}
 
 		metadata[pos] = cbindex;
 		memset(buf, 0, g_block_size);
 		memset(md5_checksum, 0, 16 + 1);
 		pos++;
+
+		/* TODO: update block_expect_size */
 	}
 
 	/* write metadata into mdata */
 	dedup_entry_hdr.path_len = strlen(fullpath) - prepos;
-	dedup_entry_hdr.block_num = block_num;
+	dedup_entry_hdr.block_num = pos;
 	dedup_entry_hdr.entry_size = BLOCK_ID_SIZE;
 	dedup_entry_hdr.last_block_size = rwsize;
 	dedup_entry_hdr.mode = statbuf.st_mode;
 
 	write(fd_mdata, &dedup_entry_hdr, sizeof(dedup_entry_header));
 	write(fd_mdata, fullpath + prepos, dedup_entry_hdr.path_len);
-	write(fd_mdata, metadata, BLOCK_ID_SIZE * block_num);
+	write(fd_mdata, metadata, BLOCK_ID_SIZE * pos);
 	write(fd_mdata, buf, rwsize);
 
 	g_regular_file_nr++;
@@ -265,7 +302,7 @@ _DEDUP_REGFILE_EXIT:
 	return ret;
 }
 
-static int dedup_dir(char *fullpath, int prepos, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
+static int dedup_dir(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
 {
 	DIR *dp;
 	struct dirent *dirp;
@@ -287,16 +324,16 @@ static int dedup_dir(char *fullpath, int prepos, int fd_bdata, int fd_mdata, has
 		if (0 == lstat(subpath, &statbuf))
 		{
 			if (verbose)
-				printf("%s\n", subpath);
+				fprintf(stderr, "%s\n", subpath);
 
 			if (S_ISREG(statbuf.st_mode)) 
 			{
-				ret = dedup_regfile(subpath, prepos, fd_bdata, fd_mdata, htable,verbose);
+				ret = dedup_regfile(subpath, prepos, fd_ldata, fd_bdata, fd_mdata, htable,verbose);
 				if (ret != 0)
 					exit(ret);
 			}
 			else if (S_ISDIR(statbuf.st_mode))
-				dedup_dir(subpath, prepos, fd_bdata, fd_mdata, htable, verbose);
+				dedup_dir(subpath, prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
 		}
 	}
 	closedir(dp);
@@ -304,9 +341,10 @@ static int dedup_dir(char *fullpath, int prepos, int fd_bdata, int fd_mdata, has
 	return 0;
 }
 
-static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, int verbose)
+static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_mdata, dedup_package_header *dedup_pkg_hdr, hashtable *htable);
+static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, int append, int verbose)
 {
-	int fd, fd_bdata, fd_mdata, ret = 0;
+	int fd, fd_ldata, fd_bdata, fd_mdata, ret = 0;
 	struct stat statbuf;
 	hashtable *htable = NULL;
 	dedup_package_header dedup_pkg_hdr;
@@ -314,9 +352,9 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	int i, rwsize, prepos;
 	char buf[1024 * 1024] = {0};
 
-	if (-1 == (fd = open(dest_file, O_WRONLY | O_CREAT, 0755)))
+	if (-1 == (fd = open(dest_file, O_RDWR | O_CREAT, 0755)))
 	{
-		perror("open dest file");
+		perror("open dest file in dedup_package_creat");
 		ret = errno;
 		goto _DEDUP_PKG_CREAT_EXIT;
 	}
@@ -324,22 +362,29 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	htable = create_hashtable(g_htab_backet_nr);
 	if (NULL == htable)
 	{
-		perror("create_hashtable");
+		perror("create_hashtable in dedup_package_creat");
 		ret = errno;
 		goto _DEDUP_PKG_CREAT_EXIT;
 	}
 
+	fd_ldata = open(LDATA_FILE, O_RDWR | O_CREAT, 0777);
 	fd_bdata = open(BDATA_FILE, O_RDWR | O_CREAT, 0777);
 	fd_mdata = open(MDATA_FILE, O_RDWR | O_CREAT, 0777);
-	if (-1 == fd_bdata || -1 == fd_mdata)
+	if (-1 == fd_ldata || -1 == fd_bdata || -1 == fd_mdata)
 	{
-		perror("open bdata or mdata");
+		perror("open ldata, bdata or mdata in dedup_package_creat");
 		ret = errno;
 		goto _DEDUP_PKG_CREAT_EXIT;
 	}
 
 	g_unique_block_nr = 0;
 	g_regular_file_nr = 0;
+	if (append)
+	{
+		ret = dedup_append_prepare(fd, fd_ldata, fd_bdata, fd_mdata, &dedup_pkg_hdr, htable);
+		if (ret != 0) goto _DEDUP_PKG_CREAT_EXIT;
+	}
+
 	for (i = 0; i < path_nr; i++)
 	{
 		if (lstat(paths[i], &statbuf) < 0)
@@ -352,7 +397,7 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 		if (S_ISREG(statbuf.st_mode) || S_ISDIR(statbuf.st_mode))
 		{
 			if (verbose)
-				printf("%s\n", paths[i]);
+				fprintf(stderr, "%s\n", paths[i]);
 			/* get filename position in pathname */	
 			prepos = strlen(paths[i]) - 1;
 			if (strcmp(paths[i], "/") != 0 && *(paths[i] + prepos) == '/')
@@ -363,14 +408,14 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 			prepos++;
 
 			if (S_ISREG(statbuf.st_mode))
-				dedup_regfile(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
+				dedup_regfile(paths[i], prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
 			else
-				dedup_dir(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
+				dedup_dir(paths[i], prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
 		}	
 		else 
 		{
 			if (verbose)
-				printf("%s is not regular file or directory.\n", paths[i]);
+				fprintf(stderr, "%s is not regular file or directory.\n", paths[i]);
 		}
 	}
 
@@ -380,10 +425,20 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	dedup_pkg_hdr.blockid_size = BLOCK_ID_SIZE;
 	dedup_pkg_hdr.magic_num = DEDUP_MAGIC_NUM;
 	dedup_pkg_hdr.file_num = g_regular_file_nr; 
-	dedup_pkg_hdr.metadata_offset = DEDUP_PKGHDR_SIZE + g_block_size * g_unique_block_nr;
+	dedup_pkg_hdr.bdata_offset = DEDUP_PKGHDR_SIZE + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * g_unique_block_nr;
+	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.bdata_offset + g_ldata_offset;
+	lseek(fd, 0, SEEK_SET);
 	write(fd, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
 
-	/* fill up dedup package unique blocks*/
+	/* fill up dedup package logic blocks */
+	lseek(fd_ldata, 0, SEEK_SET);
+	while(rwsize = read(fd_ldata, buf, 1024 * 1024))
+	{
+		write(fd, buf, rwsize);
+		memset(buf, 0, 1024 * 1024);
+	}
+
+	/* fill up dedup package unique physical blocks*/
 	lseek(fd_bdata, 0, SEEK_SET);
 	while(rwsize = read(fd_bdata, buf, 1024 * 1024))
 	{
@@ -404,8 +459,10 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 
 _DEDUP_PKG_CREAT_EXIT:
 	close(fd);
+	close(fd_ldata);
 	close(fd_bdata);
 	close(fd_mdata);
+	unlink(LDATA_FILE);
 	unlink(BDATA_FILE);
 	unlink(MDATA_FILE);
 	hash_free(htable);
@@ -459,7 +516,7 @@ static int dedup_package_list(char *src_file, int verbose)
 		/* read pathname from  deduped package opened */
 		memset(pathname, 0, MAX_PATH_LEN);
 		read(fd, pathname, dedup_entry_hdr.path_len);
-		printf("%s\n", pathname);
+		fprintf(stderr, "%s\n", pathname);
 
 		offset += DEDUP_ENTRYHDR_SIZE;
 		offset += dedup_entry_hdr.path_len;
@@ -476,8 +533,7 @@ _DEDUP_PKG_LIST_EXIT:
 	return ret;
 }
 
-static int dedup_append_prepare(int fd_pkg, int fd_bdata, int fd_mdata,\ 
-dedup_package_header *dedup_pkg_hdr, hashtable *htable)
+static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_mdata, dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 {
 	int ret = 0, i;
 	unsigned int rwsize = 0;
@@ -485,6 +541,7 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned int *bindex = NULL;
 	dedup_entry_header dedup_entry_hdr;
+	dedup_logic_block_entry dedup_lblock_entry;
 	unsigned long long offset;
 	char pathname[MAX_PATH_LEN] = {0};
 
@@ -505,9 +562,10 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 	g_unique_block_nr = dedup_pkg_hdr->block_num;
 	g_regular_file_nr = dedup_pkg_hdr->file_num;
 	g_block_size = 	dedup_pkg_hdr->block_size;
+	g_ldata_offset = dedup_pkg_hdr->metadata_offset - dedup_pkg_hdr->bdata_offset;
 
 	/* get bdata and rebuild hashtable */
-	buf = (char *)malloc(g_block_size);
+	buf = (char *)malloc(BLOCK_MAX_SIZE);
 	if (buf == NULL)
 	{
 		ret = errno;
@@ -516,9 +574,33 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 
 	for(i = 0; i < dedup_pkg_hdr->block_num; i++)
 	{
-		rwsize = read(fd_pkg, buf, g_block_size);
-		if (rwsize != g_block_size)
+		/* get logic block */
+		if (-1 == lseek(fd_pkg, DEDUP_PKGHDR_SIZE + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * i, SEEK_SET))
 		{
+			perror("lseek in dedup_append_prepare");
+			ret = errno;
+			goto _DEDUP_APPEND_PREPARE_EXIT;
+		}
+		rwsize = read(fd_pkg, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
+		if (rwsize != DEDUP_LOGIC_BLOCK_ENTRY_SIZE)
+		{
+			perror("read in dedup_append_prepare");
+			ret = errno;
+			goto _DEDUP_APPEND_PREPARE_EXIT;
+		}
+		write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
+
+		/* get physical unique block */
+		if (-1 == lseek(fd_pkg, dedup_pkg_hdr->bdata_offset + dedup_lblock_entry.block_offset, SEEK_SET))
+		{
+			perror("lseek in dedup_append_prepare");
+			ret = errno;
+			goto _DEDUP_APPEND_PREPARE_EXIT;
+		}
+		rwsize = read(fd_pkg, buf, dedup_lblock_entry.block_len);
+		if (rwsize != dedup_lblock_entry.block_len)
+		{
+			perror("read in dedup_append_preapare");
 			ret = errno;
 			goto _DEDUP_APPEND_PREPARE_EXIT;
 		}
@@ -549,27 +631,28 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
                 hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
 	}
 	
-	/* get mdata */
+	/* get file metadata */
 	offset = dedup_pkg_hdr->metadata_offset;
         for (i = 0; i < dedup_pkg_hdr->file_num; ++i)
         {
                 if (lseek(fd_pkg, offset, SEEK_SET) == -1)
                 {
+			perror("lseek in dedup_append_prepare");
                         ret = errno;
-                        break;
+                        goto _DEDUP_APPEND_PREPARE_EXIT;
                 }
 
                 if (read(fd_pkg, &dedup_entry_hdr, DEDUP_ENTRYHDR_SIZE) != DEDUP_ENTRYHDR_SIZE)
                 {
+			perror("read in dedup_append_prepare");
                         ret = errno;
-                        break;
+                        goto _DEDUP_APPEND_PREPARE_EXIT;
                 }
 
-                /* read pathname from  deduped package opened */
+                /* read pathname from deduped package opened */
                 memset(pathname, 0, MAX_PATH_LEN);
                 read(fd_pkg, pathname, dedup_entry_hdr.path_len);
-		if (0 == filename_exist(pathname))
-			filename_checkin(pathname);
+		if (0 == filename_exist(pathname)) filename_checkin(pathname);
 
                 offset += DEDUP_ENTRYHDR_SIZE;
                 offset += dedup_entry_hdr.path_len;
@@ -578,7 +661,11 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
         }
 
 	if (-1 == lseek(fd_pkg, dedup_pkg_hdr->metadata_offset, SEEK_SET))
+	{
+		perror("lseek in dedup_append_prepare");
+		ret = errno;
 		goto _DEDUP_APPEND_PREPARE_EXIT;
+	}
 	while(rwsize = read(fd_pkg, buf, g_block_size))
 	{
 		write(fd_mdata, buf, rwsize);
@@ -586,130 +673,6 @@ dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 
 _DEDUP_APPEND_PREPARE_EXIT:
 	if (buf) free(buf);
-	return ret;
-}
-
-static int dedup_package_append(int path_nr, char **src_paths, char *dest_file, int verbose)
-{
-	int fd, fd_bdata, fd_mdata, ret = 0;
-	struct stat statbuf;
-	hashtable *htable = NULL;
-	dedup_package_header dedup_pkg_hdr;
-	char **paths = src_paths;
-	int i, rwsize, prepos;
-	char buf[1024 * 1024] = {0};
-
-	if (-1 == (fd = open(dest_file, O_RDWR | O_CREAT, 0755)))
-	{
-		perror("open dest file");
-		ret = errno;
-		goto _DEDUP_PKG_APPEND_EXIT;
-	}
-
-	htable = create_hashtable(g_htab_backet_nr);
-	if (NULL == htable)
-	{
-		perror("create_hashtable");
-		ret = errno;
-		goto _DEDUP_PKG_APPEND_EXIT;
-	}
-
-	if (-1 == (fd_bdata = open(BDATA_FILE, O_RDWR | O_CREAT, 0777)))
-	{
-		perror("open bdata");
-		ret = errno;
-		goto _DEDUP_PKG_APPEND_EXIT;
-	}
-
-	if (-1 == (fd_mdata = open(MDATA_FILE, O_RDWR | O_CREAT, 0777)))
-	{
-		perror("open mdata");
-		ret = errno;
-		goto _DEDUP_PKG_APPEND_EXIT;
-	}
-
-	/* get global information from package */
-	ret = dedup_append_prepare(fd, fd_bdata, fd_mdata, &dedup_pkg_hdr, htable);
-	if (ret != 0)
-		goto _DEDUP_PKG_APPEND_EXIT;
-	if (verbose)
-		show_pkg_header(dedup_pkg_hdr);
-
-	/* add files into package */
-	for (i = 0; i < path_nr; i++)
-	{
-		if (lstat(paths[i], &statbuf) < 0)
-		{
-			perror("lstat source path");
-			ret = errno;
-			goto _DEDUP_PKG_APPEND_EXIT;
-		}
-
-		if (S_ISREG(statbuf.st_mode) || S_ISDIR(statbuf.st_mode))
-		{
-			if (verbose)
-				printf("%s\n", paths[i]);
-			/* get filename position in pathname */	
-			prepos = strlen(paths[i]) - 1;
-			if (strcmp(paths[i], "/") != 0 && *(paths[i] + prepos) == '/')
-			{
-				*(paths[i] + prepos--) = '\0';
-			}
-			while(*(paths[i] + prepos) != '/' && prepos >= 0) prepos--;
-			prepos++;
-
-			if (S_ISREG(statbuf.st_mode))
-			{
-				ret = dedup_regfile(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
-				if (ret != 0) exit(ret);
-			}
-			else
-				dedup_dir(paths[i], prepos, fd_bdata, fd_mdata, htable, verbose);
-		}	
-		else 
-		{
-			if (verbose)
-				printf("%s is not regular file or directory.\n", paths[i]);
-		}
-	}
-
-	/* fill up dedup package header */
-	dedup_pkg_hdr.block_size = g_block_size;
-	dedup_pkg_hdr.block_num = g_unique_block_nr;
-	dedup_pkg_hdr.blockid_size = BLOCK_ID_SIZE;
-	dedup_pkg_hdr.magic_num = DEDUP_MAGIC_NUM;
-	dedup_pkg_hdr.file_num = g_regular_file_nr; 
-	dedup_pkg_hdr.metadata_offset = DEDUP_PKGHDR_SIZE + g_block_size * g_unique_block_nr;
-	lseek(fd, 0, SEEK_SET);
-	write(fd, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
-
-	/* fill up dedup package unique blocks*/
-	lseek(fd_bdata, 0, SEEK_SET);
-	while(rwsize = read(fd_bdata, buf, 1024 * 1024))
-	{
-		write(fd, buf, rwsize);
-		memset(buf, 0, 1024 * 1024);
-	}
-
-	/* fill up dedup package metadata */
-	lseek(fd_mdata, 0, SEEK_SET);
-	while(rwsize = read(fd_mdata, buf, 1024 * 1024))
-	{
-		write(fd, buf, rwsize);
-		memset(buf, 0, 1024 * 1024);
-	}
-
-	if (verbose)
-		show_pkg_header(dedup_pkg_hdr);
-
-_DEDUP_PKG_APPEND_EXIT:
-	close(fd);
-	close(fd_bdata);
-	close(fd_mdata);
-	unlink(BDATA_FILE);
-	unlink(MDATA_FILE);
-	hash_free(htable);
-	
 	return ret;
 }
 
@@ -728,11 +691,12 @@ static int file_in_lists(char *filepath, int files_nr, char **files_list)
 
 static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remove, int verbose)
 {
-	int fd_pkg, fd_bdata, fd_mdata, ret = 0;
+	int fd_pkg, fd_ldata, fd_bdata, fd_mdata, ret = 0;
 	dedup_package_header dedup_pkg_hdr;
 	dedup_entry_header dedup_entry_hdr;
+	dedup_logic_block_entry dedup_lblock_entry;
 	int i, j, rwsize;
-	int remove_block_nr = 0, remove_file_nr = 0;
+	int remove_block_nr = 0, remove_file_nr = 0, remove_bytes_nr = 0;
 	char buf[1024 * 1024] = {0};
 	char *block_buf = NULL;
 	block_id_t *lookup_table = NULL;
@@ -744,21 +708,28 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	/* open files */
 	if (-1 == (fd_pkg = open(file_pkg, O_RDWR | O_CREAT, 0755)))
 	{
-		perror("open package file");
+		perror("open package file in dedup_package_remove");
+		ret = errno;
+		goto _DEDUP_PKG_REMOVE_EXIT;
+	}
+
+	if (-1 == (fd_ldata = open(LDATA_FILE, O_RDWR | O_CREAT, 0777)))
+	{
+		perror("open ldata file in dedup_package_remove");
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
 
 	if (-1 == (fd_bdata = open(BDATA_FILE, O_RDWR | O_CREAT, 0777)))
 	{
-		perror("open bdata file");
+		perror("open bdata file in dedup_package_remove");
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
 
 	if (-1 == (fd_mdata = open(MDATA_FILE, O_RDWR | O_CREAT, 0777)))
 	{
-		perror("open mdata file");
+		perror("open mdata file in dedup_package_remove");
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
@@ -766,7 +737,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	/* get global information from package */
 	if (read(fd_pkg, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE) != DEDUP_PKGHDR_SIZE)
         {
-                perror("read dedup_package_header");
+                perror("read dedup_package_header in dedup_package_remove");
                 ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
@@ -781,15 +752,15 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	g_unique_block_nr = dedup_pkg_hdr.block_num;
 	g_regular_file_nr = dedup_pkg_hdr.file_num;
 	g_block_size = dedup_pkg_hdr.block_size;
+	g_ldata_offset = dedup_pkg_hdr.metadata_offset - dedup_pkg_hdr.bdata_offset;
 	TOBE_REMOVED = g_unique_block_nr;
-	if (verbose)
-		show_pkg_header(dedup_pkg_hdr);
+	if (verbose) show_pkg_header(dedup_pkg_hdr);
 
 	/* traverse mdata to build lookup_table */
 	lookup_table = (block_id_t *)malloc(BLOCK_ID_SIZE * g_unique_block_nr);
 	if (lookup_table == NULL)
 	{
-		perror("malloc lookup_table");
+		perror("malloc lookup_table in dedup_package_remove");
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
@@ -801,12 +772,14 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	{
 		if (lseek(fd_pkg, offset, SEEK_SET) == -1)
 		{
+			perror("lseek in dedup_package_remove");
 			ret = errno;
 			goto _DEDUP_PKG_REMOVE_EXIT;
 		}
 
 		if (read(fd_pkg, &dedup_entry_hdr, DEDUP_ENTRYHDR_SIZE) != DEDUP_ENTRYHDR_SIZE)
 		{
+			perror("read in dedup_package_remove");
 			ret = errno;
 			goto _DEDUP_PKG_REMOVE_EXIT;
 		}
@@ -819,6 +792,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 			metadata = (block_id_t *)malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 			if (NULL == metadata)
 			{
+				perror("malloc in dedup_package_remove");
 				ret = errno;
 				goto _DEDUP_PKG_REMOVE_EXIT;
 			}
@@ -834,9 +808,9 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 		offset += dedup_entry_hdr.last_block_size;
 	}
 
-	/* rebuild block number and bdata */
+	/* rebuild block number, ldata and bdata */
 	remove_block_nr = 0;
-	block_buf = (char *)malloc(g_block_size);
+	block_buf = (char *)malloc(BLOCK_MAX_SIZE);
 	if (block_buf == NULL)
 	{
 		ret = errno;
@@ -844,17 +818,22 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	}
 	for (i = 0; i < g_unique_block_nr; i++)
 	{
+		lseek(fd_pkg, DEDUP_PKGHDR_SIZE + i * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET);
+		read(fd_pkg, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
 		if (lookup_table[i] == 0)
 		{
 			lookup_table[i] = TOBE_REMOVED;
 			remove_block_nr++;
+			remove_bytes_nr += dedup_lblock_entry.block_len;
 		}
 		else
 		{
 			lookup_table[i] = i - remove_block_nr;
-			lseek(fd_pkg, DEDUP_PKGHDR_SIZE + i * g_block_size, SEEK_SET);
-			read(fd_pkg, block_buf, g_block_size);
-			write(fd_bdata, block_buf, g_block_size);
+			lseek(fd_pkg, dedup_pkg_hdr.bdata_offset + dedup_lblock_entry.block_offset, SEEK_SET);
+			read(fd_pkg, block_buf, dedup_lblock_entry.block_len);
+			dedup_lblock_entry.block_offset -= remove_bytes_nr;
+			write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
+			write(fd_bdata, block_buf, dedup_lblock_entry.block_len);
 		}
 	}
 
@@ -912,11 +891,21 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	dedup_pkg_hdr.blockid_size = BLOCK_ID_SIZE;
 	dedup_pkg_hdr.magic_num = DEDUP_MAGIC_NUM;
 	dedup_pkg_hdr.file_num = g_regular_file_nr - remove_file_nr; 
-	dedup_pkg_hdr.metadata_offset = DEDUP_PKGHDR_SIZE + g_block_size * dedup_pkg_hdr.block_num;
-	
+	dedup_pkg_hdr.bdata_offset = DEDUP_PKGHDR_SIZE + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * dedup_pkg_hdr.block_num;
+	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.bdata_offset + g_ldata_offset - remove_bytes_nr;
+
+	/* write package header back */
 	ftruncate(fd_pkg, 0);
 	lseek(fd_pkg, 0, SEEK_SET);
 	write(fd_pkg, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
+
+	/* write ldata back */
+	lseek(fd_ldata, 0, SEEK_SET);
+	while(rwsize = read(fd_ldata, buf, 1024 * 1024))
+	{
+		write(fd_pkg, buf, rwsize);
+		memset(buf, 0, 1024 * 1024);
+	}
 
 	/* write bdata back*/
 	lseek(fd_bdata, 0, SEEK_SET);
@@ -939,8 +928,10 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 
 _DEDUP_PKG_REMOVE_EXIT:
 	if (fd_pkg) close(fd_pkg);
+	if (fd_ldata) close(fd_ldata);
 	if (fd_bdata) close(fd_bdata);
 	if (fd_mdata) close(fd_mdata);
+	unlink(LDATA_FILE);
 	unlink(BDATA_FILE);
 	unlink(MDATA_FILE);
 	if (lookup_table) free(lookup_table);
@@ -970,24 +961,30 @@ static int prepare_target_file(char *pathname, char *basepath, int mode)
 	return fd;
 }
 
-static int undedup_regfile(int fd, dedup_entry_header dedup_entry_hdr, char *dest_dir, int verbose)
+static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_entry_header dedup_entry_hdr, char *dest_dir, int verbose)
 {
 	char pathname[MAX_PATH_LEN] = {0};
 	block_id_t *metadata = NULL;
 	unsigned int block_num = 0;
+	unsigned int rwsize = 0;
 	char *buf = NULL;
 	char *last_block_buf = NULL;
 	long long offset, i;
 	int fd_dest, ret = 0;
+	dedup_logic_block_entry dedup_lblock_entry;
 
 	metadata = (block_id_t *) malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 	if (NULL == metadata)
+	{
+		perror("malloc in undedup_regfile");
 		return errno;
+	}
 
-	buf = (char *)malloc(g_block_size);
-	last_block_buf = (char *)malloc(g_block_size);
+	buf = (char *)malloc(BLOCK_MAX_SIZE);
+	last_block_buf = (char *)malloc(dedup_entry_hdr.last_block_size);
 	if (NULL == buf || NULL == last_block_buf)
 	{
+		perror("malloc in undedup_regfile");
 		ret = errno;
 		goto _UNDEDUP_REGFILE_EXIT;
 	}
@@ -998,21 +995,25 @@ static int undedup_regfile(int fd, dedup_entry_header dedup_entry_hdr, char *des
 	fd_dest = prepare_target_file(pathname, dest_dir, dedup_entry_hdr.mode);
 	if (fd_dest == -1)
 	{
+		perror("prepare_target_file in undedup_regfile");
 		ret = errno;
 		goto _UNDEDUP_REGFILE_EXIT;
 	}
 
 	if (verbose)
-		printf("%s/%s\n", dest_dir, pathname);
+		fprintf(stderr, "%s/%s\n", dest_dir, pathname);
 
 	/* write regular block */
 	block_num = dedup_entry_hdr.block_num;
 	for(i = 0; i < block_num; ++i)
 	{
-		offset = DEDUP_PKGHDR_SIZE + metadata[i] * g_block_size;
+		offset = DEDUP_PKGHDR_SIZE + metadata[i] * DEDUP_LOGIC_BLOCK_ENTRY_SIZE;
 		lseek(fd, offset, SEEK_SET);
-		read(fd, buf, g_block_size);
-		write(fd_dest, buf, g_block_size);
+		read(fd, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
+		offset = dedup_pkg_hdr.bdata_offset + dedup_lblock_entry.block_offset;
+		lseek(fd, offset, SEEK_SET);
+		rwsize = read(fd, buf, dedup_lblock_entry.block_len);
+		write(fd_dest, buf, rwsize);
 	}
 	/* write last block */
 	write(fd_dest, last_block_buf, dedup_entry_hdr.last_block_size);
@@ -1036,13 +1037,13 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 
         if (-1 == (fd = open(src_file, O_RDONLY)))
         {
-                perror("open source file");
+                perror("open source file in dedup_package_extract");
                 return errno;
         }
 
 	if (read(fd, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE) != DEDUP_PKGHDR_SIZE)
 	{
-		perror("read dedup_package_header");
+		perror("read dedup_package_header in dedup_package_extrace");
 		ret = errno;
 		goto _DEDUP_PKG_EXTRACT_EXIT;
 	}
@@ -1054,8 +1055,6 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 		goto _DEDUP_PKG_EXTRACT_EXIT;
 	}
 
-	if (verbose)
-		show_pkg_header(dedup_pkg_hdr);
 	g_block_size = dedup_pkg_hdr.block_size;
 
 	offset = dedup_pkg_hdr.metadata_offset;
@@ -1063,12 +1062,14 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 	{
 		if (lseek(fd, offset, SEEK_SET) == -1)
 		{
+			perror("lseek in dedup_package_extract");
 			ret = errno;
 			break;
 		}
 			
 		if (read(fd, &dedup_entry_hdr, DEDUP_ENTRYHDR_SIZE) != DEDUP_ENTRYHDR_SIZE)
 		{
+			perror("read in dedup_package_extrace");
 			ret = errno;
 			break;
 		}
@@ -1076,7 +1077,7 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 		/* extract all files */
 		if (subpath == NULL)
 		{
-			ret = undedup_regfile(fd, dedup_entry_hdr, dest_dir, verbose);
+			ret = undedup_regfile(fd, dedup_pkg_hdr, dedup_entry_hdr, dest_dir, verbose);
 			if (ret != 0)
 				break;
 		}
@@ -1088,7 +1089,7 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 			lseek(fd, offset + DEDUP_ENTRYHDR_SIZE, SEEK_SET);
 			if (strcmp(pathname, subpath) == 0)
 			{
-				ret = undedup_regfile(fd, dedup_entry_hdr, dest_dir, verbose);
+				ret = undedup_regfile(fd, dedup_pkg_hdr, dedup_entry_hdr, dest_dir, verbose);
 				break;
 			}
 		}
@@ -1099,6 +1100,8 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 		offset += dedup_entry_hdr.last_block_size;
 	}
 
+	if (verbose) show_pkg_header(dedup_pkg_hdr);
+
 _DEDUP_PKG_EXTRACT_EXIT:
 	close(fd);
 
@@ -1107,28 +1110,28 @@ _DEDUP_PKG_EXTRACT_EXIT:
 
 void usage()
 {
-        printf("Usage: dedup [OPTION...] [FILE]...\n");
-        printf("dedup util packages files with deduplicaton technique.\n\n");
-        printf("Examples:\n");
-        printf("  dedup -c foobar.ded foo bar    # Create foobar.ded from files foo and bar.\n");
-        printf("  dedup -a foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.\n");
-        printf("  dedup -r foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.\n");
-        printf("  dedup -t foobar.ded            # List all files in foobar.ded.\n");
-        printf("  dedup -x foobar.ded            # Extract all files from foobar.ded.\n\n");
-        printf("Options:\n");
-        printf("  -c, --creat      create a new archive\n");
-        printf("  -x, --extract    extrace files from an archive\n");
-        printf("  -a, --append     append files to an archive\n");
-        printf("  -r, --remove     remove files from an archive\n");
-        printf("  -t, --list       list files in an archive\n");
-        printf("  -C, --chunk      chunk algorithms: FSP, CDC, SB, default is FSP\n");
-        printf("  -z, --compress   filter the archive through zlib compression\n");
-        printf("  -b, --block      block size for deduplication, default is 4096\n");
-        printf("  -H, --hashtable  hashtable backet number, default is 10240\n");
-        printf("  -d, --directory  change to directory, default is PWD\n");
-        printf("  -v, --verbose    print verbose messages\n");
-        printf("  -h, --help       give this help list\n\n");
-        printf("Report bugs to <Aigui.Liu@gmail.com>.\n");
+        fprintf(stderr, "Usage: dedup [OPTION...] [FILE]...\n");
+        fprintf(stderr, "dedup util packages files with deduplicaton technique.\n\n");
+        fprintf(stderr, "Examples:\n");
+        fprintf(stderr, "  dedup -c foobar.ded foo bar    # Create foobar.ded from files foo and bar.\n");
+        fprintf(stderr, "  dedup -a foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.\n");
+        fprintf(stderr, "  dedup -r foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.\n");
+        fprintf(stderr, "  dedup -t foobar.ded            # List all files in foobar.ded.\n");
+        fprintf(stderr, "  dedup -x foobar.ded            # Extract all files from foobar.ded.\n\n");
+        fprintf(stderr, "Options:\n");
+        fprintf(stderr, "  -c, --creat      create a new archive\n");
+        fprintf(stderr, "  -x, --extract    extrace files from an archive\n");
+        fprintf(stderr, "  -a, --append     append files to an archive\n");
+        fprintf(stderr, "  -r, --remove     remove files from an archive\n");
+        fprintf(stderr, "  -t, --list       list files in an archive\n");
+        fprintf(stderr, "  -C, --chunk      chunk algorithms: FSP, CDC, SB, default is FSP\n");
+        fprintf(stderr, "  -z, --compress   filter the archive through zlib compression\n");
+        fprintf(stderr, "  -b, --block      block size for deduplication, default is 4096\n");
+        fprintf(stderr, "  -H, --hashtable  hashtable backet number, default is 10240\n");
+        fprintf(stderr, "  -d, --directory  change to directory, default is PWD\n");
+        fprintf(stderr, "  -v, --verbose    print verbose messages\n");
+        fprintf(stderr, "  -h, --help       give this help list\n\n");
+        fprintf(stderr, "Report bugs to <Aigui.Liu@gmail.com>.\n");
 }
 
 int main(int argc, char *argv[])
@@ -1204,6 +1207,14 @@ int main(int argc, char *argv[])
 			bverbose = 1;
 			break;
 		case 'C':
+			if (0 == strcmp(optarg, CHUNK_FSP))
+				g_chunk_algo = DEDUP_CHUNK_FSP;
+			else if (0 == strcmp(optarg, CHUNK_CDC))
+				g_chunk_algo = DEDUP_CHUNK_CDC;
+			else if (0 == strcmp(optarg, CHUNK_SB))
+				g_chunk_algo = DEDUP_CHUNK_SB;
+			else 
+				bhelp = 1;
 			break;
 		case 'h':
 		case '?':
@@ -1242,14 +1253,14 @@ int main(int argc, char *argv[])
 	switch(dedup_op)
 	{
 	case DEDUP_CREAT:
-		ret = dedup_package_creat(argc - optind -1 , argv + optind + 1, tmp_file, bverbose);
+		ret = dedup_package_creat(argc - optind -1 , argv + optind + 1, tmp_file, FALSE, bverbose);
 		break;
 	case DEDUP_EXTRACT:
 		subpath = ((argc - optind) >= 2) ? argv[optind + 1] : NULL;
 		ret = dedup_package_extract(tmp_file, subpath, path, bverbose);
 		break;
 	case DEDUP_APPEND:
-		ret = dedup_package_append(argc - optind -1 , argv + optind + 1, tmp_file, bverbose);
+		ret = dedup_package_creat(argc - optind -1 , argv + optind + 1, tmp_file, TRUE, bverbose);
 		break;
 	case DEDUP_REMOVE:
 		ret = dedup_package_remove(tmp_file, argc - optind -1, argv + optind + 1, bverbose);
