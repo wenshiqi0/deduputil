@@ -4,13 +4,16 @@
 #include <errno.h>
 #include "queue.h"
 
-int queue_init(struct linkqueue *q)
+struct linkqueue *queue_creat()
 {
+	struct linkqueue *q = (struct linkqueue *) malloc (sizeof (struct linkqueue));
+	if (NULL == q)
+		return NULL;
 	q->front = q->rear = (struct qnode *)malloc(sizeof(struct qnode));
 	if (NULL == q->front)
-		return errno;
+		return NULL;
   	q->front->next = NULL;
-  	return 0;
+  	return q;
 }
 
 int queue_destroy(struct linkqueue *q)
@@ -18,7 +21,6 @@ int queue_destroy(struct linkqueue *q)
 	while(q->front)
 	{
 		q->rear = q->front->next;
-		free(q->front->data);
 		free(q->front);
 		q->front = q->rear;
 	}
@@ -62,9 +64,7 @@ int main(int argc, char *argv[])
 {
 	int i;
 	void *e;
-
-	struct linkqueue *q = (struct linkqueue *) malloc (sizeof(struct linkqueue));
-	queue_init(q);
+	struct linkqueue *q = queue_creat();
 	for (i = 0; i < argc; ++i)
 		queue_push(q, (void *)strdup(argv[i]));
 

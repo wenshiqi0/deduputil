@@ -45,7 +45,7 @@ am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
 am_dedup_OBJECTS = dedup.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT) \
-	libz.$(OBJEXT)
+	hash.$(OBJEXT) libz.$(OBJEXT) queue.$(OBJEXT)
 dedup_OBJECTS = $(am_dedup_OBJECTS)
 dedup_DEPENDENCIES =
 DEFAULT_INCLUDES = -I. -I$(top_builddir)
@@ -160,7 +160,7 @@ AM_LDFLAGS = -L.
 #zfile_SOURCES = libz.c
 #zfile_CFLAGS = -DTESTZLIB
 #zfile_LDADD = -lz
-dedup_SOURCES = dedup.c md5.c hashtable.c libz.c
+dedup_SOURCES = dedup.c md5.c hashtable.c hash.c libz.c queue.c
 dedup_LDADD = -lz
 all: all-am
 
@@ -229,9 +229,11 @@ distclean-compile:
 	-rm -f *.tab.c
 
 include ./$(DEPDIR)/dedup.Po
+include ./$(DEPDIR)/hash.Po
 include ./$(DEPDIR)/hashtable.Po
 include ./$(DEPDIR)/libz.Po
 include ./$(DEPDIR)/md5.Po
+include ./$(DEPDIR)/queue.Po
 
 .c.o:
 	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<

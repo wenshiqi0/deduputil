@@ -22,6 +22,7 @@
 #include "hash.h"
 #include "hashtable.h"
 #include "libz.h"
+#include "queue.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +36,7 @@ typedef unsigned int block_id_t;
 #define BLOCK_SIZE	4096	 /* 4K Bytes */
 #define BLOCK_MIN_SIZE	512
 #define BLOCK_MAX_SIZE	32768
+#define BLOCK_WIN_SIZE	48
 #define BACKET_SIZE     10240
 #define MAX_PATH_LEN	255
 #define TRUE		1

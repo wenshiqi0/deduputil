@@ -9,13 +9,15 @@ struct qnode {
         void *data;
         struct qnode *next;
 };
+#define QNODE_SIZE	(sizeof(struct qnode))
 
-struct linkqueue{
+typedef struct linkqueue{
         struct qnode *front;
         struct qnode *rear;
-};
+} link_queue;
+#define LINKQUEUE_SIZE	(sizeof(struct linkqueue))
 
-int queue_init(struct linkqueue *q);
+struct linkqueue *queue_creat();
 int queue_destroy(struct linkqueue *q);
 int queue_empty(struct linkqueue *q);
 int queue_push(struct linkqueue *q, void *e);
