@@ -3,7 +3,8 @@ v1.0 beta -
 
 v1.0 alpha - 2010.06.22
   - fix bug: crashed when packing lots of files with CDC chunking
-  - add chunk option
+  - add --chunk command line option
+  - add --hashfunc command line option
 
 v1.0 alpha - 2010.06.21
   - variable-length segmentation

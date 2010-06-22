@@ -86,3 +86,8 @@ int rabinhash32(const char A[], int poly, const int size) {
 	initialize_tables();
 	return rabinhash32_func(A, 0, size, 0);
 }
+
+unsigned int rabin_hash(char *str)
+{
+	return rabinhash32(str, 1, strlen(str));
+}

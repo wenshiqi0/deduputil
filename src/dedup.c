@@ -26,10 +26,43 @@ static unsigned int g_block_size = BLOCK_SIZE;
 static unsigned int g_htab_backet_nr = BACKET_SIZE;
 
 /* chunking algorithms */
-static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_FSP;
+static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
+
+/* CDC chunking hash function */
+static unsigned int (*g_cdc_chunk_hashfunc)(char *str) = ELF_hash;
 
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
+
+static int set_cdc_chunk_hashfunc(char *hash_func_name)
+{
+        if (0 == strcmp(hash_func_name, "simple_hash"))
+                g_cdc_chunk_hashfunc = simple_hash;
+        else if (0 == strcmp(hash_func_name, "RS_hash"))
+                g_cdc_chunk_hashfunc = RS_hash;
+        else if (0 == strcmp(hash_func_name, "JS_hash"))
+                g_cdc_chunk_hashfunc = JS_hash;
+        else if (0 == strcmp(hash_func_name, "PJW_hash"))
+                g_cdc_chunk_hashfunc = PJW_hash;
+        else if (0 == strcmp(hash_func_name, "ELF_hash"))
+                g_cdc_chunk_hashfunc = ELF_hash;
+        else if (0 == strcmp(hash_func_name, "BKDR_hash"))
+                g_cdc_chunk_hashfunc = BKDR_hash;
+        else if (0 == strcmp(hash_func_name, "SDBM_hash"))
+                g_cdc_chunk_hashfunc = SDBM_hash;
+        else if (0 == strcmp(hash_func_name, "DJB_hash"))
+                g_cdc_chunk_hashfunc = DJB_hash;
+        else if (0 == strcmp(hash_func_name, "AP_hash"))
+                g_cdc_chunk_hashfunc = AP_hash;
+        else if (0 == strcmp(hash_func_name, "CRC_hash"))
+                g_cdc_chunk_hashfunc = CRC_hash;
+        else if (0 == strcmp(hash_func_name, "rabin_hash"))
+		g_cdc_chunk_hashfunc = rabin_hash;
+	else
+                return -1;
+
+	return 0;
+}
 
 static inline int filename_exist(char *filename)
 {
@@ -182,7 +215,12 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 		{
 			memset(win_buf, 0, BLOCK_WIN_SIZE + 1);
 			memcpy(win_buf, buf + head, BLOCK_WIN_SIZE);
-			hkey = rabinhash32(win_buf, 1, BLOCK_WIN_SIZE);
+			/*
+			 * Firstly, i think rabinhash is the best. However, it's performance is very bad.
+			 * After some testing, i found ELF_hash is better both on performance and dedup rate.
+			 * So, EFL_hash is default.
+			 */
+			hkey = g_cdc_chunk_hashfunc(win_buf);
 			/* get a normal chunk */
 			if ((hkey % d) == r)
 			{
@@ -1270,11 +1308,15 @@ void usage()
         fprintf(stderr, "  -a, --append     append files to an archive\n");
         fprintf(stderr, "  -r, --remove     remove files from an archive\n");
         fprintf(stderr, "  -t, --list       list files in an archive\n");
-        fprintf(stderr, "  -C, --chunk      chunk algorithms: FSP, CDC, SB, default is FSP\n");
+        fprintf(stderr, "  -C, --chunk      chunk algorithms: FSP, CDC, SB, CDC as default\n");
+	fprintf(stderr, "  -f, --hashfunc   set hash function for CDC file chunking, ELF_hash as default\n");
+	fprintf(stderr, "                   hash functions list as followed: \n");
+	fprintf(stderr, "                        rabin_hash, RS_hash, JS_hash, PJW_hash, ELF_hash, AP_hash\n");
+	fprintf(stderr, "                        simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash\n");
         fprintf(stderr, "  -z, --compress   filter the archive through zlib compression\n");
-        fprintf(stderr, "  -b, --block      block size for deduplication, default is 4096\n");
-        fprintf(stderr, "  -H, --hashtable  hashtable backet number, default is 10240\n");
-        fprintf(stderr, "  -d, --directory  change to directory, default is PWD\n");
+        fprintf(stderr, "  -b, --block      block size for deduplication, 4096 as default\n");
+        fprintf(stderr, "  -H, --hashtable  hashtable backet number, 10240 as default\n");
+        fprintf(stderr, "  -d, --directory  change to directory, PWD as default\n");
         fprintf(stderr, "  -v, --verbose    print verbose messages\n");
         fprintf(stderr, "  -h, --help       give this help list\n\n");
         fprintf(stderr, "Report bugs to <Aigui.Liu@gmail.com>.\n");
@@ -1294,6 +1336,7 @@ int main(int argc, char *argv[])
 	{
 		{"creat", 1, 0, 'c'},
 		{"chunk", 1, 0, 'C'},
+		{"hashfunc", 1, 0, 'f'},
 		{"extract", 1, 0, 'x'},
 		{"append", 1, 0, 'a'},
 		{"remove", 1, 0, 'r'},
@@ -1308,7 +1351,7 @@ int main(int argc, char *argv[])
 	};
 
 	/* parse options */
-	while ((c = getopt_long (argc, argv, "cxartzb:H:d:vC:h", longopts, NULL)) != EOF)
+	while ((c = getopt_long (argc, argv, "cxartzb:H:d:vC:f:h", longopts, NULL)) != EOF)
 	{
 		switch(c) 
 		{
@@ -1360,6 +1403,10 @@ int main(int argc, char *argv[])
 			else if (0 == strcmp(optarg, CHUNK_SB))
 				g_chunk_algo = DEDUP_CHUNK_SB;
 			else 
+				bhelp = 1;
+			break;
+		case 'f':
+			if (0 != set_cdc_chunk_hashfunc(optarg))
 				bhelp = 1;
 			break;
 		case 'h':

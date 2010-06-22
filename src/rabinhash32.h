@@ -49,6 +49,7 @@ extern "C" {
 #define READ_BUFFER_SIZE		1024
 
 int rabinhash32(const char A[], int poly, const int size);
+unsigned int rabin_hash(char *str);
 
 #ifdef __cplusplus
 }
