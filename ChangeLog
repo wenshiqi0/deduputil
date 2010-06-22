@@ -2,7 +2,9 @@ v1.0 release -
 v1.0 beta -
 
 v1.0 alpha - 2010.06.21
-  - content-defined chunking support
+  - variable-length segmentation
+  - content-defined chunking
+  - rabinhash32 fingerprinting
 
 v1.0 alpha - 2010.06.17
   - refactoring to fit variable-length block chunking

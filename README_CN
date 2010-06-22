@@ -60,6 +60,7 @@ Options:
   -a, --append     append files to an archive
   -r, --remove     remove files from an archive
   -t, --list       list files in an archive
+  -C, --chunk      chunk algorithms: FSP, CDC, SB, default is FSP
   -z, --compress   filter the archive through zlib compression
   -b, --block      block size for deduplication, default is 4096
   -H, --hashtable  hashtable backet number, default is 10240

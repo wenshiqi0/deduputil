@@ -5,18 +5,30 @@ dedup util is a lightweight open-source file packing tool. It is based on
 block-level data de-duplication technology, and can reduce the data capacity
 to save storage space.
 
-NOTE: no MD5 collsion problem, but lose some performance.
+Internal data layout of dedup package as followed (in src/dedup.h):
+deduplication file data layout
++---------------------------------------------------------------------+
+|  header  |  logic block data  |  unique block data |  file metadata |
++---------------------------------------------------------------------+
 
-Internal data layout of dedup package as followed:
-deduplication file data layout (in src/dedup.h)
---------------------------------------------------
-|  header  |  unique block data |  file metadata |
---------------------------------------------------
-
-file metedata entry layout (in src/dedup.h)
------------------------------------------------------------------
+file metedata entry layout
++---------------------------------------------------------------+
 |  entry header  |  pathname  |  entry data  |  last block data |
------------------------------------------------------------------
++---------------------------------------------------------------+
+
+entry data layout
++---------------------------------------+
+| bid 1 | bid 2 | ... | bid n-1 | bid n |
++---------------------------------------+
+
+Features
+-------
+1. append/remove files into/from package.
+
+2. no MD5 collsion problem, but loss some performance.
+
+3. support both variable-length and fixed-length segmentation. 
+
 
 Source
 ------
@@ -58,6 +70,7 @@ Options:
   -a, --append     append files to an archive
   -r, --remove     remove files from an archive
   -t, --list       list files in an archive
+  -C, --chunk      chunk algorithms: FSP, CDC, SB, default is CDC
   -z, --compress   filter the archive through zlib compression
   -b, --block      block size for deduplication, default is 4096
   -H, --hashtable  hashtable backet number, default is 10240

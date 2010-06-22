@@ -26,7 +26,7 @@ static unsigned int g_block_size = BLOCK_SIZE;
 static unsigned int g_htab_backet_nr = BACKET_SIZE;
 
 /* chunking algorithms */
-static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_FSP;
+static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
 
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
@@ -151,7 +151,7 @@ _BLOCK_CMP_EXIT:
 static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkqueue *lq)
 {
 	char buf[BLOCK_MAX_SIZE] = {0};
-	char win_buf[BLOCK_WIN_SIZE] = {0};
+	char win_buf[BLOCK_WIN_SIZE + 1] = {0};
 	unsigned int pos = 0;
 	unsigned int rwsize = 0;
 	unsigned int exp_rwsize = BLOCK_MAX_SIZE;
@@ -181,7 +181,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 		while ((head + BLOCK_WIN_SIZE) < tail)
 		{
 			memcpy(win_buf, buf + head, BLOCK_WIN_SIZE);
-			hkey = simple_hash(win_buf); // TODO: rabin_fingerprinting
+			hkey = rabinhash32(win_buf, 1, BLOCK_WIN_SIZE);
 			/* get a normal chunk */
 			if ((hkey % d) == r)
 			{

@@ -15,7 +15,7 @@ bin_PROGRAMS = $(CMDS)
 #zfile_CFLAGS = -DTESTZLIB
 #zfile_LDADD = -lz
 
-dedup_SOURCES = dedup.c md5.c hashtable.c hash.c libz.c queue.c
+dedup_SOURCES = dedup.c md5.c hashtable.c hash.c rabinhash32.c libz.c queue.c
 dedup_LDADD = -lz
 
 #bdiff_SOURCES = bdiff.c md5.c hashtable.c
