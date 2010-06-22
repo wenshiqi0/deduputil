@@ -1,10 +1,10 @@
 #include "rabinhash32.h"
 
-static int P;
-static int table32[256];
-static int table40[256];
-static int table48[256];
-static int table56[256];
+static int P = 1;
+static int table32[256] = {0};
+static int table40[256] = {0};
+static int table48[256] = {0};
+static int table56[256] = {0};
 
 void initialize_tables() 
 {

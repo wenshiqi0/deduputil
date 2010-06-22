@@ -26,7 +26,7 @@ static unsigned int g_block_size = BLOCK_SIZE;
 static unsigned int g_htab_backet_nr = BACKET_SIZE;
 
 /* chunking algorithms */
-static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
+static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_FSP;
 
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
@@ -180,6 +180,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 
 		while ((head + BLOCK_WIN_SIZE) < tail)
 		{
+			memset(win_buf, 0, BLOCK_WIN_SIZE + 1);
 			memcpy(win_buf, buf + head, BLOCK_WIN_SIZE);
 			hkey = rabinhash32(win_buf, 1, BLOCK_WIN_SIZE);
 			/* get a normal chunk */
@@ -394,7 +395,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		}
 
 		/* if metadata is not enough, realloc it */
-		if (pos >= block_num)
+		if ((pos + 1) >= block_num)
 		{
 			metadata = realloc(metadata, BLOCK_ID_SIZE * (block_num + BLOCK_ID_ALLOC_INC));
 			if (NULL == metadata)
@@ -403,10 +404,11 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 				ret = errno;
 				goto _DEDUP_REGFILE_EXIT;
 			}
+			block_num += BLOCK_ID_ALLOC_INC;
 		}
 
 		metadata[pos] = cbindex;
-		memset(buf, 0, g_block_size);
+		memset(buf, 0, BLOCK_MAX_SIZE);
 		memset(md5_checksum, 0, 16 + 1);
 		pos++;
 
@@ -443,9 +445,9 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 
 _DEDUP_REGFILE_EXIT:
 	close(fd);
-	if (metadata) free(metadata);
-	if (buf) free(buf);
-	if (lq) 
+	if (metadata != NULL) free(metadata);
+	if (buf != NULL) free(buf);
+	if (lq != NULL) 
 	{
 		queue_destroy(lq);
 		free(lq);
