@@ -1,5 +1,7 @@
 v1.0 release -
-v1.0 beta -
+
+v1.0 beta - 2010.06.23
+  - add stat information about an archive
 
 v1.0 alpha - 2010.06.22
   - fix bug: crashed when packing lots of files with CDC chunking

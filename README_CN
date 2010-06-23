@@ -60,6 +60,7 @@ Examples:
   dedup -r foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.
   dedup -t foobar.ded            # List all files in foobar.ded.
   dedup -x foobar.ded            # Extract all files from foobar.ded.
+  dedup -s foobar.ded            # Show information about foobar.ded.
 
 Options:
   -c, --creat      create a new archive
@@ -67,6 +68,7 @@ Options:
   -a, --append     append files to an archive
   -r, --remove     remove files from an archive
   -t, --list       list files in an archive
+  -s, --stat       show information about an archive
   -C, --chunk      chunk algorithms: FSP, CDC, SB, default is FSP
   -z, --compress   filter the archive through zlib compression
   -b, --block      block size for deduplication, default is 4096

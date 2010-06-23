@@ -79,7 +79,8 @@ enum DEDUP_OPERATIONS {
 	DEDUP_EXTRACT,
 	DEDUP_APPEND,
 	DEDUP_REMOVE,
-	DEDUP_LIST
+	DEDUP_LIST,
+	DEDUP_STAT
 };
 
 /* deduplication chunking algorithms */
@@ -91,6 +92,11 @@ enum DEDUP_CHUNK_ALGORITHMS {
 	DEDUP_CHUNK_CDC,
 	DEDUP_CHUNK_SB
 };
+
+typedef struct _cdc_chunk_hashfunc {
+	char hashfunc_name[16];
+	unsigned int (*hashfunc)(char *str);
+} cdc_chunk_hashfunc;
 
 /* deduplication temporary files */
 #define TMP_FILE 	".dedup_d7d1b627a34d5b56dae225cc4f03ddf7\0"

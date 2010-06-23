@@ -25,43 +25,45 @@ static unsigned int g_block_size = BLOCK_SIZE;
 /* hashtable backet number */
 static unsigned int g_htab_backet_nr = BACKET_SIZE;
 
+/* hashtable for pathnames */
+static hashtable *g_htable = NULL;
+
 /* chunking algorithms */
 static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
 
 /* CDC chunking hash function */
 static unsigned int (*g_cdc_chunk_hashfunc)(char *str) = ELF_hash;
 
-/* hashtable for pathnames */
-static hashtable *g_htable = NULL;
+static cdc_chunk_hashfunc CDC_CHUNK_HASHFUNC[] =
+{
+	{"simple_hash", simple_hash},
+	{"RS_hash", RS_hash},
+	{"JS_hash", JS_hash},
+	{"PJW_hash", PJW_hash},
+	{"ELF_hash", ELF_hash},
+	{"BKDR_hash", BKDR_hash},
+	{"SDBM_hash", SDBM_hash},
+	{"DJB_hash", DJB_hash},
+	{"AP_hash", AP_hash},
+	{"CRC_hash", CRC_hash},
+	{"rabin_hash", rabin_hash}
+};
 
 static int set_cdc_chunk_hashfunc(char *hash_func_name)
 {
-        if (0 == strcmp(hash_func_name, "simple_hash"))
-                g_cdc_chunk_hashfunc = simple_hash;
-        else if (0 == strcmp(hash_func_name, "RS_hash"))
-                g_cdc_chunk_hashfunc = RS_hash;
-        else if (0 == strcmp(hash_func_name, "JS_hash"))
-                g_cdc_chunk_hashfunc = JS_hash;
-        else if (0 == strcmp(hash_func_name, "PJW_hash"))
-                g_cdc_chunk_hashfunc = PJW_hash;
-        else if (0 == strcmp(hash_func_name, "ELF_hash"))
-                g_cdc_chunk_hashfunc = ELF_hash;
-        else if (0 == strcmp(hash_func_name, "BKDR_hash"))
-                g_cdc_chunk_hashfunc = BKDR_hash;
-        else if (0 == strcmp(hash_func_name, "SDBM_hash"))
-                g_cdc_chunk_hashfunc = SDBM_hash;
-        else if (0 == strcmp(hash_func_name, "DJB_hash"))
-                g_cdc_chunk_hashfunc = DJB_hash;
-        else if (0 == strcmp(hash_func_name, "AP_hash"))
-                g_cdc_chunk_hashfunc = AP_hash;
-        else if (0 == strcmp(hash_func_name, "CRC_hash"))
-                g_cdc_chunk_hashfunc = CRC_hash;
-        else if (0 == strcmp(hash_func_name, "rabin_hash"))
-		g_cdc_chunk_hashfunc = rabin_hash;
-	else
-                return -1;
+	int i;
+	int nr = sizeof(CDC_CHUNK_HASHFUNC) / sizeof(CDC_CHUNK_HASHFUNC[0]);
+	
+	for (i = 0; i < nr; ++i)
+	{
+		if (0 == strcmp(hash_func_name, CDC_CHUNK_HASHFUNC[i].hashfunc_name))
+		{
+			g_cdc_chunk_hashfunc = CDC_CHUNK_HASHFUNC[i].hashfunc;
+			return 0;
+		}
+	}
 
-	return 0;
+	return -1;
 }
 
 static inline int filename_exist(char *filename)
@@ -97,6 +99,7 @@ static void show_md5(unsigned char md5_checksum[16])
 
 static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 {
+	fprintf(stderr, "\n");
         fprintf(stderr, "block_size = %d\n", dedup_pkg_hdr.block_size);
         fprintf(stderr, "block_num = %d\n", dedup_pkg_hdr.block_num);
 	fprintf(stderr, "blockid_size = %d\n", dedup_pkg_hdr.blockid_size);
@@ -863,6 +866,117 @@ _DEDUP_PKG_LIST_EXIT:
 	return ret;
 }
 
+static int dedup_package_stat(char *src_file, int verbose)
+{
+	int fd, i, j, ret = 0;
+	struct stat stat_buf;
+	dedup_package_header dedup_pkg_hdr;
+	dedup_entry_header dedup_entry_hdr;
+	dedup_logic_block_entry dedup_lblock_entry;
+	unsigned long long offset;
+	unsigned long long last_blocks_sz = 0;
+	unsigned long long dup_blocks_sz = 0;
+	block_id_t *metadata = NULL;
+	block_id_t *lblock_array = NULL;
+	unsigned int dup_blocks_nr = 0;
+
+        if (-1 == (fd = open(src_file, O_RDONLY)))
+        {
+                perror("open source file in dedup_package_stat");
+                return errno;
+        }
+
+	if (-1 == (fstat(fd, &stat_buf)))
+	{
+		perror("fstat in dedup_package_stat");
+		ret = errno;
+		goto _DEDUP_PKG_STAT_EXIT;
+	}
+
+	if (read(fd, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE) != DEDUP_PKGHDR_SIZE)
+	{
+		perror("read dedup_package_header in dedup_package_stat");
+		ret = errno;
+		goto _DEDUP_PKG_STAT_EXIT;
+	}
+
+	if (dedup_pkg_hdr.magic_num != DEDUP_MAGIC_NUM)
+	{
+		fprintf(stderr, "magic number is error, maybe this file is not a dedup package.\n");
+		ret = -1;
+		goto _DEDUP_PKG_STAT_EXIT;
+	}
+
+	/* traverse mdata to build lblock_array */
+	lblock_array = (block_id_t *)malloc(BLOCK_ID_SIZE * dedup_pkg_hdr.block_num);
+	if (lblock_array == NULL)
+	{
+		perror("malloc lblock_array in dedup_package_stat");
+		ret = errno;
+		goto _DEDUP_PKG_STAT_EXIT;
+	}
+	for (i = 0; i < dedup_pkg_hdr.block_num; i++)
+		lblock_array[i] = 0;
+
+	offset = dedup_pkg_hdr.metadata_offset;
+	for (i = 0; i < dedup_pkg_hdr.file_num; i++)
+	{
+		if (lseek(fd, offset, SEEK_SET) == -1)
+		{
+			ret = errno;
+			break;
+		}
+			
+		if (read(fd, &dedup_entry_hdr, DEDUP_ENTRYHDR_SIZE) != DEDUP_ENTRYHDR_SIZE)
+		{
+			ret = errno;
+			break;
+		}
+		
+		last_blocks_sz += dedup_entry_hdr.last_block_size;
+		metadata = (block_id_t *)malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
+		if (NULL == metadata)
+		{
+			perror("malloc in dedup_package_stat");
+			ret = errno;
+			goto _DEDUP_PKG_STAT_EXIT;
+		}
+		lseek(fd, dedup_entry_hdr.path_len, SEEK_CUR);
+		read(fd, metadata, BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
+		for (j = 0; j < dedup_entry_hdr.block_num; j++)
+			lblock_array[metadata[j]]++;
+		if (metadata) free(metadata);
+
+		offset += DEDUP_ENTRYHDR_SIZE;
+		offset += dedup_entry_hdr.path_len;
+		offset += dedup_entry_hdr.block_num * dedup_entry_hdr.entry_size;
+		offset += dedup_entry_hdr.last_block_size;
+	}
+
+	/* traverse logic blocks to get dup_blocks_sz */
+	lseek(fd, DEDUP_PKGHDR_SIZE, SEEK_SET);
+	for (i = 0; i < dedup_pkg_hdr.block_num; ++i)
+	{
+		if (lblock_array[i] > 1)
+			dup_blocks_nr++;
+
+		read(fd, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
+		dup_blocks_sz += (lblock_array[i] * dedup_lblock_entry.block_len);
+	}
+
+	/* show stat information */
+	show_pkg_header(dedup_pkg_hdr);
+	fprintf(stderr, "duplicated block number: %d\n", dup_blocks_nr);
+	fprintf(stderr, "total size of all orginal files: %ld\n", dup_blocks_sz + last_blocks_sz);
+	fprintf(stderr, "total size of dedup package: %ld\n", stat_buf.st_size);
+	fprintf(stderr, "dedup rate = %.2f : 1\n", (dup_blocks_sz + last_blocks_sz)/1.00/stat_buf.st_size);
+
+_DEDUP_PKG_STAT_EXIT:
+	close(fd);
+
+	return ret;
+}
+
 static int file_in_lists(char *filepath, int files_nr, char **files_list)
 {
 	int i;
@@ -1301,18 +1415,21 @@ void usage()
         fprintf(stderr, "  dedup -a foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.\n");
         fprintf(stderr, "  dedup -r foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.\n");
         fprintf(stderr, "  dedup -t foobar.ded            # List all files in foobar.ded.\n");
-        fprintf(stderr, "  dedup -x foobar.ded            # Extract all files from foobar.ded.\n\n");
-        fprintf(stderr, "Options:\n");
+        fprintf(stderr, "  dedup -x foobar.ded            # Extract all files from foobar.ded.\n");
+        fprintf(stderr, "  dedup -s foobar.ded            # Show information about foobar.ded.\n\n");
+        fprintf(stderr, "Main options (must only one):\n");
         fprintf(stderr, "  -c, --creat      create a new archive\n");
         fprintf(stderr, "  -x, --extract    extrace files from an archive\n");
         fprintf(stderr, "  -a, --append     append files to an archive\n");
         fprintf(stderr, "  -r, --remove     remove files from an archive\n");
         fprintf(stderr, "  -t, --list       list files in an archive\n");
+	fprintf(stderr, "  -s, --stat       show information about an archive\n\n");
+	fprintf(stderr, "Other options:\n");
         fprintf(stderr, "  -C, --chunk      chunk algorithms: FSP, CDC, SB, CDC as default\n");
 	fprintf(stderr, "  -f, --hashfunc   set hash function for CDC file chunking, ELF_hash as default\n");
 	fprintf(stderr, "                   hash functions list as followed: \n");
-	fprintf(stderr, "                        rabin_hash, RS_hash, JS_hash, PJW_hash, ELF_hash, AP_hash\n");
-	fprintf(stderr, "                        simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash\n");
+	fprintf(stderr, "                   rabin_hash, RS_hash, JS_hash, PJW_hash, ELF_hash, AP_hash\n");
+	fprintf(stderr, "                   simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash\n");
         fprintf(stderr, "  -z, --compress   filter the archive through zlib compression\n");
         fprintf(stderr, "  -b, --block      block size for deduplication, 4096 as default\n");
         fprintf(stderr, "  -H, --hashtable  hashtable backet number, 10240 as default\n");
@@ -1341,6 +1458,7 @@ int main(int argc, char *argv[])
 		{"append", 1, 0, 'a'},
 		{"remove", 1, 0, 'r'},
 		{"list", 1, 0, 't'},
+		{"stat", 1, 0, 's'},
 		{"compress", 0, &bz, 'z'},
 		{"block", 1, 0, 'b'},
 		{"hashtable", 1, 0, 'H'},
@@ -1351,7 +1469,7 @@ int main(int argc, char *argv[])
 	};
 
 	/* parse options */
-	while ((c = getopt_long (argc, argv, "cxartzb:H:d:vC:f:h", longopts, NULL)) != EOF)
+	while ((c = getopt_long (argc, argv, "cxartszb:H:d:vC:f:h", longopts, NULL)) != EOF)
 	{
 		switch(c) 
 		{
@@ -1377,6 +1495,11 @@ int main(int argc, char *argv[])
 			break;
 		case 't':
 			dedup_op = DEDUP_LIST;
+			dedup_op_nr++;
+			args_nr = 1;
+			break;
+		case 's':
+			dedup_op = DEDUP_STAT;
 			dedup_op_nr++;
 			args_nr = 1;
 			break;
@@ -1460,6 +1583,9 @@ int main(int argc, char *argv[])
 		break;
 	case DEDUP_LIST:
 		ret = dedup_package_list(tmp_file, bverbose);
+		break;
+	case DEDUP_STAT:
+		ret = dedup_package_stat(tmp_file, bverbose);
 		break;
 	}
 

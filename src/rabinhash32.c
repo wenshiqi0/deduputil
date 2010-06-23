@@ -1,3 +1,4 @@
+#include <string.h>
 #include "rabinhash32.h"
 
 static int P = 1;
