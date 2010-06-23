@@ -564,6 +564,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	dedup_entry_hdr.entry_size = BLOCK_ID_SIZE;
 	dedup_entry_hdr.last_block_size = rwsize;
 	dedup_entry_hdr.mode = statbuf.st_mode;
+	dedup_entry_hdr.old_size = statbuf.st_blocks * 512;
 
 	write(fd_mdata, &dedup_entry_hdr, sizeof(dedup_entry_header));
 	write(fd_mdata, fullpath + prepos, dedup_entry_hdr.path_len);
@@ -965,6 +966,7 @@ static int dedup_package_stat(char *src_file, int verbose)
 	unsigned long long offset;
 	unsigned long long last_blocks_sz = 0;
 	unsigned long long dup_blocks_sz = 0;
+	unsigned long long total_files_sz = 0;
 	block_id_t *metadata = NULL;
 	block_id_t *lblock_array = NULL;
 	unsigned int dup_blocks_nr = 0;
@@ -1023,6 +1025,7 @@ static int dedup_package_stat(char *src_file, int verbose)
 		}
 		
 		last_blocks_sz += dedup_entry_hdr.last_block_size;
+		total_files_sz += dedup_entry_hdr.old_size;
 		metadata = (block_id_t *)malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 		if (NULL == metadata)
 		{
@@ -1056,9 +1059,10 @@ static int dedup_package_stat(char *src_file, int verbose)
 	/* show stat information */
 	show_pkg_header(dedup_pkg_hdr);
 	fprintf(stderr, "duplicated block number: %d\n", dup_blocks_nr);
-	fprintf(stderr, "total size of all orginal files: %ld\n", dup_blocks_sz + last_blocks_sz);
+	fprintf(stderr, "total size in orginal filesystem: %ld\n", total_files_sz);
+	fprintf(stderr, "total real size of all orginal files: %ld\n", dup_blocks_sz + last_blocks_sz);
 	fprintf(stderr, "total size of dedup package: %ld\n", stat_buf.st_size);
-	fprintf(stderr, "dedup rate = %.2f : 1\n", (dup_blocks_sz + last_blocks_sz)/1.00/stat_buf.st_size);
+	fprintf(stderr, "dedup rate = %.2f : 1\n", total_files_sz/1.00/stat_buf.st_size);
 
 _DEDUP_PKG_STAT_EXIT:
 	close(fd);

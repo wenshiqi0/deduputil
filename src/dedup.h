@@ -69,6 +69,7 @@ typedef struct _dedup_entry_header {
 	unsigned int block_num;
 	unsigned int entry_size;
 	unsigned int last_block_size;
+	unsigned long long old_size;
 	int mode;
 } dedup_entry_header;
 #define DEDUP_ENTRYHDR_SIZE	(sizeof(dedup_entry_header))
