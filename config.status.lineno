@@ -363,11 +363,11 @@ Copyright (C) 2008 Free Software Foundation, Inc.
 This config.status script is free software; the Free Software Foundation
 gives unlimited permission to copy, distribute and modify it."
 
-ac_pwd='/opt/workspace/dedup'
+ac_pwd='/opt/workspace/deduputil.sf'
 srcdir='.'
 INSTALL='/usr/bin/install -c'
 MKDIR_P='/bin/mkdir -p'
-AWK='mawk'
+AWK='gawk'
 test -n "$AWK" || AWK=awk
 # The default lists apply if the user does not specify any file.
 ac_need_defaults=:
@@ -533,6 +533,8 @@ fi
 
 echo 'BEGIN {' >"$tmp/subs1.awk" &&
 cat >>"$tmp/subs1.awk" <<\_ACAWK &&
+S["am__EXEEXT_FALSE"]=""
+S["am__EXEEXT_TRUE"]="#"
 S["LTLIBOBJS"]=""
 S["LIBOBJS"]=""
 S["EGREP"]="/bin/grep -E"
@@ -557,20 +559,20 @@ S["CFLAGS"]="-g -O2"
 S["CC"]="gcc"
 S["am__untar"]="${AMTAR} xf -"
 S["am__tar"]="${AMTAR} chof - \"$$tardir\""
-S["AMTAR"]="${SHELL} /opt/workspace/dedup/missing --run tar"
+S["AMTAR"]="${SHELL} /opt/workspace/deduputil.sf/missing --run tar"
 S["am__leading_dot"]="."
 S["SET_MAKE"]=""
-S["AWK"]="mawk"
+S["AWK"]="gawk"
 S["mkdir_p"]="/bin/mkdir -p"
 S["MKDIR_P"]="/bin/mkdir -p"
 S["INSTALL_STRIP_PROGRAM"]="$(install_sh) -c -s"
 S["STRIP"]=""
-S["install_sh"]="$(SHELL) /opt/workspace/dedup/install-sh"
-S["MAKEINFO"]="${SHELL} /opt/workspace/dedup/missing --run makeinfo"
-S["AUTOHEADER"]="${SHELL} /opt/workspace/dedup/missing --run autoheader"
-S["AUTOMAKE"]="${SHELL} /opt/workspace/dedup/missing --run automake-1.10"
-S["AUTOCONF"]="${SHELL} /opt/workspace/dedup/missing --run autoconf"
-S["ACLOCAL"]="${SHELL} /opt/workspace/dedup/missing --run aclocal-1.10"
+S["install_sh"]="${SHELL} /opt/workspace/deduputil.sf/install-sh"
+S["MAKEINFO"]="${SHELL} /opt/workspace/deduputil.sf/missing --run makeinfo"
+S["AUTOHEADER"]="${SHELL} /opt/workspace/deduputil.sf/missing --run autoheader"
+S["AUTOMAKE"]="${SHELL} /opt/workspace/deduputil.sf/missing --run automake-1.11"
+S["AUTOCONF"]="${SHELL} /opt/workspace/deduputil.sf/missing --run autoconf"
+S["ACLOCAL"]="${SHELL} /opt/workspace/deduputil.sf/missing --run aclocal-1.11"
 S["VERSION"]="0.1"
 S["PACKAGE"]="dedup"
 S["CYGPATH_W"]="echo"
@@ -647,7 +649,7 @@ if sed "s/$ac_cr//" < /dev/null > /dev/null 2>&1; then
 else
   cat
 fi < "$tmp/subs1.awk" > "$tmp/subs.awk" \
-  || { { $as_echo "$as_me:650: error: could not setup config files machinery" >&5
+  || { { $as_echo "$as_me:652: error: could not setup config files machinery" >&5
 $as_echo "$as_me: error: could not setup config files machinery" >&2;}
    { (exit 1); exit 1; }; }
 fi # test -n "$CONFIG_FILES"
@@ -723,7 +725,7 @@ D["HAVE_STRDUP"]=" 1"
 }
 { print }
 _ACAWK
-  { { $as_echo "$as_me:726: error: could not setup config headers machinery" >&5
+  { { $as_echo "$as_me:728: error: could not setup config headers machinery" >&5
 $as_echo "$as_me: error: could not setup config headers machinery" >&2;}
    { (exit 1); exit 1; }; }
 fi # test -n "$CONFIG_HEADERS"
@@ -738,7 +740,7 @@ do
   esac
   case $ac_mode$ac_tag in
   :[FHL]*:*);;
-  :L* | :C*:*) { { $as_echo "$as_me:741: error: invalid tag $ac_tag" >&5
+  :L* | :C*:*) { { $as_echo "$as_me:743: error: invalid tag $ac_tag" >&5
 $as_echo "$as_me: error: invalid tag $ac_tag" >&2;}
    { (exit 1); exit 1; }; };;
   :[FH]-) ac_tag=-:-;;
@@ -768,7 +770,7 @@ $as_echo "$as_me: error: invalid tag $ac_tag" >&2;}
 	   [\\/$]*) false;;
 	   *) test -f "$srcdir/$ac_f" && ac_f="$srcdir/$ac_f";;
 	   esac ||
-	   { { $as_echo "$as_me:771: error: cannot find input file: $ac_f" >&5
+	   { { $as_echo "$as_me:773: error: cannot find input file: $ac_f" >&5
 $as_echo "$as_me: error: cannot find input file: $ac_f" >&2;}
    { (exit 1); exit 1; }; };;
       esac
@@ -784,7 +786,7 @@ $as_echo "$as_me: error: cannot find input file: $ac_f" >&2;}
 	`' by configure.'
     if test x"$ac_file" != x-; then
       configure_input="$ac_file.  $configure_input"
-      { $as_echo "$as_me:787: creating $ac_file" >&5
+      { $as_echo "$as_me:789: creating $ac_file" >&5
 $as_echo "$as_me: creating $ac_file" >&6;}
     fi
     # Neutralize special characters interpreted by sed in replacement strings.
@@ -797,7 +799,7 @@ $as_echo "$as_me: creating $ac_file" >&6;}
 
     case $ac_tag in
     *:-:* | *:-) cat >"$tmp/stdin" \
-      || { { $as_echo "$as_me:800: error: could not create $ac_file" >&5
+      || { { $as_echo "$as_me:802: error: could not create $ac_file" >&5
 $as_echo "$as_me: error: could not create $ac_file" >&2;}
    { (exit 1); exit 1; }; } ;;
     esac
@@ -865,7 +867,7 @@ $as_echo X"$as_dir" |
       test -d "$as_dir" && break
     done
     test -z "$as_dirs" || eval "mkdir $as_dirs"
-  } || test -d "$as_dir" || { { $as_echo "$as_me:868: error: cannot create directory $as_dir" >&5
+  } || test -d "$as_dir" || { { $as_echo "$as_me:870: error: cannot create directory $as_dir" >&5
 $as_echo "$as_me: error: cannot create directory $as_dir" >&2;}
    { (exit 1); exit 1; }; }; }
   ac_builddir=.
@@ -936,7 +938,7 @@ ac_sed_dataroot='
 case `eval "sed -n \"\$ac_sed_dataroot\" $ac_file_inputs"` in
 *datarootdir*) ac_datarootdir_seen=yes;;
 *@datadir@*|*@docdir@*|*@infodir@*|*@localedir@*|*@mandir@*)
-  { $as_echo "$as_me:939: WARNING: $ac_file_inputs seems to ignore the --datarootdir setting" >&5
+  { $as_echo "$as_me:941: WARNING: $ac_file_inputs seems to ignore the --datarootdir setting" >&5
 $as_echo "$as_me: WARNING: $ac_file_inputs seems to ignore the --datarootdir setting" >&2;}
   ac_datarootdir_hack='
   s&@datadir@&${datarootdir}&g
@@ -972,14 +974,14 @@ s&@MKDIR_P@&$ac_MKDIR_P&;t t
 $ac_datarootdir_hack
 "
 eval sed \"\$ac_sed_extra\" "$ac_file_inputs" | $AWK -f "$tmp/subs.awk" >$tmp/out \
-  || { { $as_echo "$as_me:975: error: could not create $ac_file" >&5
+  || { { $as_echo "$as_me:977: error: could not create $ac_file" >&5
 $as_echo "$as_me: error: could not create $ac_file" >&2;}
    { (exit 1); exit 1; }; }
 
 test -z "$ac_datarootdir_hack$ac_datarootdir_seen" &&
   { ac_out=`sed -n '/\${datarootdir}/p' "$tmp/out"`; test -n "$ac_out"; } &&
   { ac_out=`sed -n '/^[	 ]*datarootdir[	 ]*:*=/p' "$tmp/out"`; test -z "$ac_out"; } &&
-  { $as_echo "$as_me:982: WARNING: $ac_file contains a reference to the variable \`datarootdir'
+  { $as_echo "$as_me:984: WARNING: $ac_file contains a reference to the variable \`datarootdir'
 which seems to be undefined.  Please make sure it is defined." >&5
 $as_echo "$as_me: WARNING: $ac_file contains a reference to the variable \`datarootdir'
 which seems to be undefined.  Please make sure it is defined." >&2;}
@@ -989,7 +991,7 @@ which seems to be undefined.  Please make sure it is defined." >&2;}
   -) cat "$tmp/out" && rm -f "$tmp/out";;
   *) rm -f "$ac_file" && mv "$tmp/out" "$ac_file";;
   esac \
-  || { { $as_echo "$as_me:992: error: could not create $ac_file" >&5
+  || { { $as_echo "$as_me:994: error: could not create $ac_file" >&5
 $as_echo "$as_me: error: could not create $ac_file" >&2;}
    { (exit 1); exit 1; }; }
  ;;
@@ -1002,23 +1004,23 @@ $as_echo "$as_me: error: could not create $ac_file" >&2;}
       $as_echo "/* $configure_input  */" \
       && eval '$AWK -f "$tmp/defines.awk"' "$ac_file_inputs"
     } >"$tmp/config.h" \
-      || { { $as_echo "$as_me:1005: error: could not create $ac_file" >&5
+      || { { $as_echo "$as_me:1007: error: could not create $ac_file" >&5
 $as_echo "$as_me: error: could not create $ac_file" >&2;}
    { (exit 1); exit 1; }; }
     if diff "$ac_file" "$tmp/config.h" >/dev/null 2>&1; then
-      { $as_echo "$as_me:1009: $ac_file is unchanged" >&5
+      { $as_echo "$as_me:1011: $ac_file is unchanged" >&5
 $as_echo "$as_me: $ac_file is unchanged" >&6;}
     else
       rm -f "$ac_file"
       mv "$tmp/config.h" "$ac_file" \
-	|| { { $as_echo "$as_me:1014: error: could not create $ac_file" >&5
+	|| { { $as_echo "$as_me:1016: error: could not create $ac_file" >&5
 $as_echo "$as_me: error: could not create $ac_file" >&2;}
    { (exit 1); exit 1; }; }
     fi
   else
     $as_echo "/* $configure_input  */" \
       && eval '$AWK -f "$tmp/defines.awk"' "$ac_file_inputs" \
-      || { { $as_echo "$as_me:1021: error: could not create -" >&5
+      || { { $as_echo "$as_me:1023: error: could not create -" >&5
 $as_echo "$as_me: error: could not create -" >&2;}
    { (exit 1); exit 1; }; }
   fi
@@ -1058,7 +1060,7 @@ $as_echo X"$_am_arg" |
 	  s/.*/./; q'`/stamp-h$_am_stamp_count
  ;;
 
-  :C)  { $as_echo "$as_me:1061: executing $ac_file commands" >&5
+  :C)  { $as_echo "$as_me:1063: executing $ac_file commands" >&5
 $as_echo "$as_me: executing $ac_file commands" >&6;}
  ;;
   esac
@@ -1191,7 +1193,7 @@ $as_echo X"$as_dir" |
       test -d "$as_dir" && break
     done
     test -z "$as_dirs" || eval "mkdir $as_dirs"
-  } || test -d "$as_dir" || { { $as_echo "$as_me:1194: error: cannot create directory $as_dir" >&5
+  } || test -d "$as_dir" || { { $as_echo "$as_me:1196: error: cannot create directory $as_dir" >&5
 $as_echo "$as_me: error: cannot create directory $as_dir" >&2;}
    { (exit 1); exit 1; }; }; }
       # echo "creating $dirpart/$file"

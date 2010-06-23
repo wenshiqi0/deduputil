@@ -28,6 +28,10 @@ static unsigned int g_htab_backet_nr = BACKET_SIZE;
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
 
+/* hashtable for SB file chunking */
+static hashtable *g_sb_htable_crc = NULL;
+static hashtable *g_sb_htable_md5 = NULL;
+
 /* chunking algorithms */
 static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
 
@@ -66,26 +70,14 @@ static int set_cdc_chunk_hashfunc(char *hash_func_name)
 	return -1;
 }
 
-static inline int filename_exist(char *filename)
+static inline int hash_exist(hashtable *htable, char *str)
 {
-	return (NULL == hash_value((void *)filename, g_htable)) ? 0 : 1;
+	return (NULL == hash_value((void *)str, htable)) ? 0 : 1;
 }
 
-static int filename_checkin(char *filename)
+static inline void hash_checkin(hashtable *htable, char *str)
 {
-	unsigned int *flag = NULL;
-
-	flag = (unsigned int *) malloc (sizeof(unsigned int));
-	if (NULL == flag)
-	{
-		perror("malloc in filename_checkin");
-		exit(errno);
-	}
-
-	*flag = 1;
-	hash_insert((void *)strdup(filename), (void *)flag, g_htable);
-
-	return 0;
+	hash_insert((void *)strdup(str), (void *)strdup("1"), htable);
 }
 
 static void show_md5(unsigned char md5_checksum[16])
@@ -179,6 +171,48 @@ _BLOCK_CMP_EXIT:
 	return ret;
 }
 
+static int chunk_push(struct linkqueue *lq, unsigned int chunk_size)
+{
+	unsigned int *qe = NULL;
+	
+	qe = (unsigned int *) malloc(sizeof(unsigned int));
+	if (qe == NULL)
+	{
+		perror("malloc in file_chunk_cdc");
+		return -1;
+	}
+	else
+	{
+		*qe = chunk_size;
+		queue_push(lq, (void *)qe);
+	}
+
+	return 0;
+}
+
+static int uint_2_str(unsigned int x, char *str)
+{
+	int i = 0;
+	unsigned int xx = x, t;
+
+	while (xx)
+	{
+		str[i++] = (xx % 10) + '0';
+		xx = xx / 10;
+	}
+	str[i] = '\0';
+
+	xx = i;
+	for (i = 0; i < xx/2; i++)
+	{
+		t = str[i];
+		str[i] = str[xx - i -1];
+		str[xx - i -1] = t;
+	}
+
+	return xx;
+}
+
 /*
  * content-defined chunking:
  * 1. BLOCK_MIN_SIZE <= block_size <= BLOCK_MAX_SIZE
@@ -214,7 +248,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 			head += (block_sz - old_block_sz);
 		}
 
-		while ((head + BLOCK_WIN_SIZE) < tail)
+		while ((head + BLOCK_WIN_SIZE) <= tail)
 		{
 			memset(win_buf, 0, BLOCK_WIN_SIZE + 1);
 			memcpy(win_buf, buf + head, BLOCK_WIN_SIZE);
@@ -231,16 +265,8 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 				block_sz += BLOCK_WIN_SIZE;
 				if (block_sz >= BLOCK_MIN_SIZE)
 				{
-					qe = (unsigned int *) malloc(sizeof(unsigned int));
-					if (qe == NULL)
-					{
-						perror("malloc in file_chunk_cdc");
-						ret = -1;
-						goto _FILE_CHUNK_CDC_EXIT;
-					}
-					*qe = block_sz;
+					chunk_push(lq, block_sz);
 					block_sz = 0;
-					queue_push(lq, (void *)qe);
 				}
 			}
 			else 
@@ -250,16 +276,8 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 				/* get an abnormal chunk */
 				if (block_sz >= BLOCK_MAX_SIZE)
 				{
-					qe = (unsigned int *) malloc(sizeof(unsigned int));
-					if (qe == NULL)
-					{
-						perror("malloc in file_chunk_cdc");
-						ret = -1;
-						goto _FILE_CHUNK_CDC_EXIT;
-					}
-					*qe = block_sz;
+					chunk_push(lq, block_sz);
 					block_sz = 0;
-					queue_push(lq, (void *)qe);
 				}
 			}
 
@@ -281,18 +299,88 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 	/* last chunk */
 	if ((rwsize + pos + block_sz) >= 0)
 	{
-		qe = (unsigned int *) malloc(sizeof(unsigned int));
-		if (qe == NULL)
-		{
-			perror("malloc in file_chunk_cdc");
-			ret = -1;
-			goto _FILE_CHUNK_CDC_EXIT;
-		}
-		*qe = ((rwsize + pos + block_sz) > BLOCK_MIN_SIZE) ? (rwsize + pos + block_sz) : BLOCK_MIN_SIZE;
-		queue_push(lq, (void *)qe);
+		chunk_push(lq, ((rwsize + pos + block_sz) > BLOCK_MIN_SIZE) ? (rwsize + pos + block_sz) : BLOCK_MIN_SIZE);
 	}
 
 _FILE_CHUNK_CDC_EXIT:
+	lseek(fd, 0, SEEK_SET);
+	return ret;
+}
+
+/*
+ * slideing block chunking, performance is a big issue.
+ */
+static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
+{
+	char buf[BLOCK_MAX_SIZE] = {0};
+	char win_buf[BLOCK_MAX_SIZE + 1] = {0};
+	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned char crc_checksum[16] = {0};
+	unsigned int pos = 0;
+	unsigned int slide_sz = 0;
+	unsigned int rwsize = 0;
+	unsigned int exp_rwsize = BLOCK_MAX_SIZE;
+	unsigned int head, tail;
+	unsigned int *qe = NULL;
+	unsigned int hkey = 0;
+	unsigned int bflag = 0;
+	int ret = 0;
+
+	while(rwsize = read(fd, buf + pos, exp_rwsize))
+	{
+		/* last chunk */
+		if ((rwsize + pos) < block_size)
+			break;
+
+		head = 0;
+		tail = pos + rwsize;
+		while ((head + block_size) <= tail)
+		{
+			memset(win_buf, 0, BLOCK_MAX_SIZE + 1);
+			memcpy(win_buf, buf + head, block_size);
+			hkey = CRC_hash(win_buf);
+			uint_2_str(hkey, crc_checksum);
+			bflag = 0;
+
+			/* this block is duplicate */
+			if (hash_exist(g_sb_htable_crc, crc_checksum))
+			{
+				md5(win_buf, block_size, md5_checksum);
+				if (hash_exist(g_sb_htable_md5, md5_checksum))
+				{
+					if (slide_sz != 0) chunk_push(lq, slide_sz);
+					chunk_push(lq, block_size);
+					head += block_size;
+					slide_sz = 0;
+					bflag = 1;
+				}
+			}
+
+			/* this block is not duplicate */
+			if (bflag == 0)
+			{
+				head++;
+				slide_sz++;
+				if (slide_sz == block_size)
+				{
+					chunk_push(lq, block_size);
+					md5(win_buf, block_size, md5_checksum);
+					hash_checkin(g_sb_htable_crc, crc_checksum);
+					hash_checkin(g_sb_htable_md5, md5_checksum);
+					slide_sz = 0;
+				}
+			}
+		}
+
+		/* read expected data from file to full up buf */
+		pos = tail - head;
+		exp_rwsize = BLOCK_MAX_SIZE - pos;
+		memmove(buf, buf + head, pos);
+	}
+	/* last chunk */
+	if ((rwsize + pos) >= 0) chunk_push(lq, block_size);
+
+_FILE_CHUNK_SB_EXIT:
 	lseek(fd, 0, SEEK_SET);
 	return ret;
 }
@@ -314,7 +402,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 
 
 	/* check if the filename already exists */
-	if (filename_exist(fullpath))
+	if (hash_exist(g_htable, fullpath))
 	{
 		if (verbose) fprintf(stderr, "Warning: %s already exists in package\n", fullpath);
 		return 0;
@@ -355,19 +443,20 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	switch (g_chunk_algo)
 	{
 	case DEDUP_CHUNK_CDC:
+	case DEDUP_CHUNK_SB:
 		if (NULL == (lq = queue_creat()))
 		{
 			perror("queue_creat in dedup_regfile");
 			ret = -1;
 			goto _DEDUP_REGFILE_EXIT;
 		}
-		file_chunk_cdc(fd, g_block_size, 0, lq);
+		(g_chunk_algo == DEDUP_CHUNK_CDC) ? file_chunk_cdc(fd, g_block_size, 0, lq) : 
+						    file_chunk_sb(fd, g_block_size, lq);
 		if (queue_pop(lq, &qe) == 0)
 			block_expect_size = *((unsigned int *)qe);
 		else 
 			block_expect_size = BLOCK_MIN_SIZE;
 		break;
-	case DEDUP_CHUNK_SB:
 	case DEDUP_CHUNK_FSP:
 	default:
 		block_expect_size = g_block_size;
@@ -376,7 +465,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	while (rwsize = read(fd, buf, block_expect_size)) 
 	{
 		/* if the last block */
-		if (rwsize != block_expect_size)  /* TODO: maybe errors happen */
+		if (rwsize != block_expect_size)
 			break;
 
 		/* calculate md5 */
@@ -457,12 +546,12 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		switch (g_chunk_algo)
 		{
 		case DEDUP_CHUNK_CDC:
+		case DEDUP_CHUNK_SB:
 			if (0 == queue_pop(lq, &qe))
 				block_expect_size = *((unsigned int *)qe); 
 			else 
 				block_expect_size = BLOCK_MIN_SIZE;
 			break;
-		case DEDUP_CHUNK_SB:
 		case DEDUP_CHUNK_FSP:
 		default:
 			break;
@@ -482,7 +571,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	write(fd_mdata, buf, rwsize);
 
 	g_regular_file_nr++;
-	filename_checkin(fullpath);
+	hash_checkin(g_htable, fullpath);
 
 _DEDUP_REGFILE_EXIT:
 	close(fd);
@@ -655,7 +744,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
                 /* read pathname from deduped package opened */
                 memset(pathname, 0, MAX_PATH_LEN);
                 read(fd_pkg, pathname, dedup_entry_hdr.path_len);
-		if (0 == filename_exist(pathname)) filename_checkin(pathname);
+		if (0 == hash_exist(g_htable, pathname)) hash_checkin(g_htable, pathname);
 
                 offset += DEDUP_ENTRYHDR_SIZE;
                 offset += dedup_entry_hdr.path_len;
@@ -1411,12 +1500,12 @@ void usage()
         fprintf(stderr, "Usage: dedup [OPTION...] [FILE]...\n");
         fprintf(stderr, "dedup util packages files with deduplicaton technique.\n\n");
         fprintf(stderr, "Examples:\n");
-        fprintf(stderr, "  dedup -c foobar.ded foo bar    # Create foobar.ded from files foo and bar.\n");
-        fprintf(stderr, "  dedup -a foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.\n");
-        fprintf(stderr, "  dedup -r foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.\n");
-        fprintf(stderr, "  dedup -t foobar.ded            # List all files in foobar.ded.\n");
-        fprintf(stderr, "  dedup -x foobar.ded            # Extract all files from foobar.ded.\n");
-        fprintf(stderr, "  dedup -s foobar.ded            # Show information about foobar.ded.\n\n");
+        fprintf(stderr, "  dedup -c -v foobar.ded foo bar    # Create foobar.ded from files foo and bar.\n");
+        fprintf(stderr, "  dedup -a -v foobar.ded foo1 bar1  # Append files foo1 and bar1 into foobar.ded.\n");
+        fprintf(stderr, "  dedup -r -v foobar.ded foo1 bar1  # Remove files foo1 and bar1 from foobar.ded.\n");
+        fprintf(stderr, "  dedup -t -v foobar.ded            # List all files in foobar.ded.\n");
+        fprintf(stderr, "  dedup -x -v foobar.ded            # Extract all files from foobar.ded.\n");
+        fprintf(stderr, "  dedup -s -v foobar.ded            # Show information about foobar.ded.\n\n");
         fprintf(stderr, "Main options (must only one):\n");
         fprintf(stderr, "  -c, --creat      create a new archive\n");
         fprintf(stderr, "  -x, --extract    extrace files from an archive\n");
@@ -1451,25 +1540,25 @@ int main(int argc, char *argv[])
 
 	struct option longopts[] =
 	{
-		{"creat", 1, 0, 'c'},
+		{"creat", 0, 0, 'c'},
 		{"chunk", 1, 0, 'C'},
 		{"hashfunc", 1, 0, 'f'},
-		{"extract", 1, 0, 'x'},
-		{"append", 1, 0, 'a'},
-		{"remove", 1, 0, 'r'},
-		{"list", 1, 0, 't'},
-		{"stat", 1, 0, 's'},
-		{"compress", 0, &bz, 'z'},
+		{"extract", 0, 0, 'x'},
+		{"append", 0, 0, 'a'},
+		{"remove", 0, 0, 'r'},
+		{"list", 0, 0, 't'},
+		{"stat", 0, 0, 's'},
+		{"compress", 0, 0, 'z'},
 		{"block", 1, 0, 'b'},
 		{"hashtable", 1, 0, 'H'},
 		{"directory", 1, 0, 'd'},
-		{"verbose", 0, &bverbose, 'v'},
-		{"help", 0, &bhelp, 'h'},
+		{"verbose", 0, 0, 'v'},
+		{"help", 0, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
 	/* parse options */
-	while ((c = getopt_long (argc, argv, "cxartszb:H:d:vC:f:h", longopts, NULL)) != EOF)
+	while ((c = getopt_long (argc, argv, "cC:f:xartszb:H:d:vh", longopts, NULL)) != EOF)
 	{
 		switch(c) 
 		{
@@ -1546,11 +1635,23 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/* create global hashtables */
 	g_htable = create_hashtable(g_htab_backet_nr);
 	if (NULL == g_htable)
 	{
 		perror("create_hashtable in main");
 		return -1;
+	}
+
+	if (g_chunk_algo == DEDUP_CHUNK_SB)
+	{
+		g_sb_htable_crc = create_hashtable(g_htab_backet_nr);
+		g_sb_htable_md5 = create_hashtable(g_htab_backet_nr);
+		if (NULL == g_sb_htable_crc || NULL == g_sb_htable_md5)
+		{
+			perror("create_hashtable in main");
+			return -1;
+		}
 	}
 
 	/* uncompress package if needed */
@@ -1593,6 +1694,8 @@ int main(int argc, char *argv[])
 	if (bz) ret = zlib_compress_file(tmp_file, argv[optind]);
 
 	if (g_htable) hash_free(g_htable);
+	if (g_sb_htable_crc) hash_free(g_sb_htable_crc);
+	if (g_sb_htable_md5) hash_free(g_sb_htable_md5);
 	dedup_clean();
 	return ret;
 }
