@@ -1,3 +1,19 @@
+/* Copyright (C) 2010 Aigui Liu
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, visit the http://fsf.org website.
+ */
+
 /* 
  * deduplication file data layout
  * +---------------------------------------------------------------------+
@@ -21,6 +37,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define DEDUPUTIL_VERSION	"1.0 beta"
 
 /* deduplication block id type */
 typedef unsigned int block_id_t;
@@ -92,11 +110,8 @@ typedef struct _cdc_chunk_hashfunc {
 	unsigned int (*hashfunc)(char *str);
 } cdc_chunk_hashfunc;
 
-/* deduplication temporary files */
-#define TMP_FILE 	".dedup_d7d1b627a34d5b56dae225cc4f03ddf7\0"
-#define LDATA_FILE	".ldata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
-#define MDATA_FILE	".mdata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
-#define BDATA_FILE	".bdata_d7d1b627a34d5b56dae225cc4f03ddf7\0"
+/* magic number for temporary filename */
+#define FILENAME_MAGIC_NUM	"d7d1b627a34d5b56dae225cc4f03ddf7"
 
 #ifdef __cplusplus
 }

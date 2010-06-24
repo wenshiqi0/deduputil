@@ -1,8 +1,25 @@
+/* Copyright (C) 2010 Aigui Liu
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, visit the http://fsf.org website.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <signal.h>
 #include <unistd.h>
 #include <getopt.h>
 #include <fcntl.h>
@@ -37,6 +54,12 @@ static hashtable *g_htable = NULL;
 /* hashtable for SB file chunking */
 static hashtable *g_sb_htable_crc = NULL;
 static hashtable *g_sb_htable_md5 = NULL;
+
+/* deduplication temporary files */
+static char tmp_file[MAX_PATH_LEN] = {0};
+static char ldata_file[MAX_PATH_LEN] = {0};
+static char bdata_file[MAX_PATH_LEN] = {0};
+static char mdata_file[MAX_PATH_LEN] = {0};
 
 /* chunking algorithms */
 static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
@@ -97,7 +120,6 @@ static void show_md5(unsigned char md5_checksum[16])
 
 static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 {
-	fprintf(stderr, "\n");
         fprintf(stderr, "block_size = %d\n", dedup_pkg_hdr.block_size);
         fprintf(stderr, "block_num = %d\n", dedup_pkg_hdr.block_num);
 	fprintf(stderr, "blockid_size = %d\n", dedup_pkg_hdr.blockid_size);
@@ -109,11 +131,41 @@ static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 
 static void dedup_clean()
 {
-	unlink(TMP_FILE);
-	unlink(LDATA_FILE);
-	unlink(BDATA_FILE);
-	unlink(MDATA_FILE);
+	pid_t pid = getpid();
+	sprintf(tmp_file, ".dedup_%s_%d\0", FILENAME_MAGIC_NUM, pid);
+	unlink(tmp_file);
+	unlink(ldata_file);
+	unlink(bdata_file);
+	unlink(mdata_file);
 }
+
+static void dedup_sigroutine(int signo)
+{
+	switch(signo)
+	{
+	case SIGQUIT:
+	case SIGILL:
+	case SIGABRT:
+	case SIGKILL:
+	case SIGSEGV:
+		dedup_clean();
+	}
+}
+
+static void dedup_init()
+{
+	pid_t pid = getpid();
+	sprintf(tmp_file, ".dedup_%s_%d\0", FILENAME_MAGIC_NUM, pid);
+	sprintf(ldata_file, ".ldata_%s_%d\0", FILENAME_MAGIC_NUM, pid);
+	sprintf(bdata_file, ".bdata_%s_%d\0", FILENAME_MAGIC_NUM, pid);
+	sprintf(mdata_file, ".mdata_%s_%d\0", FILENAME_MAGIC_NUM, pid);
+	signal(SIGQUIT, dedup_sigroutine);
+	signal(SIGILL, dedup_sigroutine);
+	signal(SIGABRT, dedup_sigroutine);
+	signal(SIGKILL, dedup_sigroutine);
+	signal(SIGSEGV, dedup_sigroutine);
+}
+
 
 static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex, unsigned int len)
 {
@@ -784,8 +836,10 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	char **paths = src_paths;
 	int i, rwsize, prepos;
 	char buf[1024 * 1024] = {0};
+	mode_t mode;
 
-	if (-1 == (fd = open(dest_file, O_RDWR | O_CREAT, 0755)))
+	mode = append ? (O_RDWR | O_CREAT) : (O_WRONLY | O_CREAT | O_TRUNC);
+	if (-1 == (fd = open(dest_file, mode, 0755)))
 	{
 		perror("open dest file in dedup_package_creat");
 		ret = errno;
@@ -800,9 +854,9 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 		goto _DEDUP_PKG_CREAT_EXIT;
 	}
 
-	fd_ldata = open(LDATA_FILE, O_RDWR | O_CREAT, 0777);
-	fd_bdata = open(BDATA_FILE, O_RDWR | O_CREAT, 0777);
-	fd_mdata = open(MDATA_FILE, O_RDWR | O_CREAT, 0777);
+	fd_ldata = open(ldata_file, O_RDWR | O_CREAT, 0777);
+	fd_bdata = open(bdata_file, O_RDWR | O_CREAT, 0777);
+	fd_mdata = open(mdata_file, O_RDWR | O_CREAT, 0777);
 	if (-1 == fd_ldata || -1 == fd_bdata || -1 == fd_mdata)
 	{
 		perror("open ldata, bdata or mdata in dedup_package_creat");
@@ -1113,23 +1167,12 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
 
-	if (-1 == (fd_ldata = open(LDATA_FILE, O_RDWR | O_CREAT, 0777)))
+	fd_ldata = open(ldata_file, O_RDWR | O_CREAT, 0777);
+	fd_bdata = open(bdata_file, O_RDWR | O_CREAT, 0777);
+	fd_mdata = open(mdata_file, O_RDWR | O_CREAT, 0777);
+	if (fd_ldata == -1 || fd_bdata == -1 || fd_mdata == -1)
 	{
-		perror("open ldata file in dedup_package_remove");
-		ret = errno;
-		goto _DEDUP_PKG_REMOVE_EXIT;
-	}
-
-	if (-1 == (fd_bdata = open(BDATA_FILE, O_RDWR | O_CREAT, 0777)))
-	{
-		perror("open bdata file in dedup_package_remove");
-		ret = errno;
-		goto _DEDUP_PKG_REMOVE_EXIT;
-	}
-
-	if (-1 == (fd_mdata = open(MDATA_FILE, O_RDWR | O_CREAT, 0777)))
-	{
-		perror("open mdata file in dedup_package_remove");
+		perror("open ldata, bdata or mdata file in dedup_package_remove");
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
@@ -1505,7 +1548,7 @@ _DEDUP_PKG_EXTRACT_EXIT:
 	return ret;
 }
 
-void usage()
+static void usage()
 {
         fprintf(stderr, "Usage: dedup [OPTION...] [FILE]...\n");
         fprintf(stderr, "dedup util packages files with deduplicaton technique.\n\n");
@@ -1538,13 +1581,20 @@ void usage()
         fprintf(stderr, "Report bugs to <Aigui.Liu@gmail.com>.\n");
 }
 
+static void version()
+{
+	fprintf(stderr, "dedup utility %s\n", DEDUPUTIL_VERSION);
+	fprintf(stderr, "Copyright (C) 2010 Aigui Liu\n");
+	fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
+	fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
+}
+
 int main(int argc, char *argv[])
 {
-	int bz = 0, bhelp = 0, bverbose = 0;
+	int bz = 0, bhelp = 0, bverbose = 0, bversion = 0;
 	int ret = -1, c;
 	int dedup_op = -1, dedup_op_nr = 0;
 	int args_nr = 0;
-	char tmp_file[MAX_PATH_LEN] = TMP_FILE;
 	char path[MAX_PATH_LEN] = ".\0";
 	char *subpath = NULL;
 
@@ -1563,12 +1613,13 @@ int main(int argc, char *argv[])
 		{"hashtable", 1, 0, 'H'},
 		{"directory", 1, 0, 'd'},
 		{"verbose", 0, 0, 'v'},
+		{"version", 0, 0, 'V'},
 		{"help", 0, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
 	/* parse options */
-	while ((c = getopt_long (argc, argv, "cC:f:xartszb:H:d:vh", longopts, NULL)) != EOF)
+	while ((c = getopt_long (argc, argv, "cC:f:xartszb:H:d:vVh", longopts, NULL)) != EOF)
 	{
 		switch(c) 
 		{
@@ -1631,6 +1682,8 @@ int main(int argc, char *argv[])
 			if (0 != set_cdc_chunk_hashfunc(optarg))
 				bhelp = 1;
 			break;
+		case 'V':
+			bversion = 1;
 		case 'h':
 		case '?':
 		default:
@@ -1639,12 +1692,19 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (bversion)
+	{
+		version();
+		return 0;
+	}
+
 	if (bhelp == 1 || (dedup_op == -1 || dedup_op_nr != 1) ||(argc - optind) < args_nr)
 	{
 		usage();
 		return 0;
 	}
 
+	dedup_init();
 	/* create global hashtables */
 	g_htable = create_hashtable(g_htab_backet_nr);
 	if (NULL == g_htable)

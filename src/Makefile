@@ -66,7 +66,7 @@ AMTAR = ${SHELL} /opt/workspace/deduputil.sf/missing --run tar
 AUTOCONF = ${SHELL} /opt/workspace/deduputil.sf/missing --run autoconf
 AUTOHEADER = ${SHELL} /opt/workspace/deduputil.sf/missing --run autoheader
 AUTOMAKE = ${SHELL} /opt/workspace/deduputil.sf/missing --run automake-1.10
-AWK = gawk
+AWK = mawk
 CC = gcc
 CCDEPMODE = depmode=gcc3
 CFLAGS = -g -O2
@@ -150,7 +150,7 @@ top_srcdir = ..
 
 #CMDS = dedup md5 hashtest zfile bdiff
 CMDS = dedup
-AM_CFLAGS = -g3 -Wall 
+AM_CFLAGS = -pg -g3 -Wall 
 AM_LDFLAGS = -L.
 
 #md5_SOURCES = md5.c

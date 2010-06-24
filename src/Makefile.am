@@ -1,7 +1,7 @@
 #CMDS = dedup md5 hashtest zfile bdiff
 CMDS = dedup
 
-AM_CFLAGS = -g3 -Wall 
+AM_CFLAGS = -pg -g3 -Wall 
 AM_LDFLAGS = -L.
 
 bin_PROGRAMS = $(CMDS)

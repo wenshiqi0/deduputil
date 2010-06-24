@@ -1,4 +1,7 @@
-v1.0 release -
+v1.0 release - 2010.10.25
+  - fix bug: can not run multiple instances simultaneously
+  - clean temporary files when process terminates abnormally
+  - fix bug: create package incorrectly when file exists
 
 v1.0 beta - 2010.06.23
   - add stat information about an archive

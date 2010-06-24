@@ -69,7 +69,7 @@ unsigned int PJW_hash(char *str)
 unsigned int ELF_hash(char *str)
 {
          unsigned int hash = 0;
-         unsigned int x     = 0;
+         unsigned int x    = 0;
 
          while (*str)
          {
