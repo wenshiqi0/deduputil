@@ -8,6 +8,12 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
+#include "md5.h"
+#include "hash.h"
+#include "hashtable.h"
+#include "libz.h"
+#include "queue.h"
+#include "rabinhash32.h"
 #include "dedup.h"
 
 /* unique block number in package */

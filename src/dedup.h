@@ -18,13 +18,6 @@
 #ifndef _DEDUP_H
 #define _DEDUP_H
 
-#include "md5.h"
-#include "hash.h"
-#include "hashtable.h"
-#include "libz.h"
-#include "queue.h"
-#include "rabinhash32.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
