@@ -38,18 +38,18 @@
 extern "C" {
 #endif
 
-#define DEDUPUTIL_VERSION	"1.0 beta"
+#define DEDUPUTIL_VERSION	"1.0"
 
 /* deduplication block id type */
 typedef unsigned int block_id_t;
 #define BLOCK_ID_SIZE   (sizeof(block_id_t))
 #define BLOCK_ID_ALLOC_INC	20
 
-#define BLOCK_SIZE	4096	 /* 4K Bytes */
+#define BLOCK_SIZE	4096	/* 4K Bytes */
 #define BLOCK_MIN_SIZE	512
-#define BLOCK_MAX_SIZE	32768
+#define BLOCK_MAX_SIZE	131072	/* 128K Bytes */
 #define BLOCK_WIN_SIZE	48
-#define BACKET_SIZE     10240
+#define BACKET_SIZE     102400
 #define MAX_PATH_LEN	255
 #define TRUE		1
 #define FALSE		0
@@ -110,6 +110,13 @@ typedef struct _cdc_chunk_hashfunc {
 	char hashfunc_name[16];
 	unsigned int (*hashfunc)(char *str);
 } cdc_chunk_hashfunc;
+
+typedef struct _chunk_qe {
+	unsigned int chunk_size;
+	unsigned int has_md5;
+	char md5[16 + 1];
+} chunk_qe;
+#define CHUNK_QE_SIZE	(sizeof(chunk_qe))
 
 /* magic number for temporary filename */
 #define FILENAME_MAGIC_NUM	"d7d1b627a34d5b56dae225cc4f03ddf7"

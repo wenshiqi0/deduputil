@@ -235,11 +235,11 @@ _BLOCK_CMP_EXIT:
 	return ret;
 }
 
-static int chunk_push(struct linkqueue *lq, unsigned int chunk_size)
+static int chunk_push(struct linkqueue *lq, unsigned int chunk_size, unsigned int has_md5, char *md5)
 {
-	unsigned int *qe = NULL;
+	chunk_qe *qe = NULL;
 	
-	qe = (unsigned int *) malloc(sizeof(unsigned int));
+	qe = (chunk_qe *) malloc(CHUNK_QE_SIZE);
 	if (qe == NULL)
 	{
 		perror("malloc in file_chunk_cdc");
@@ -247,7 +247,9 @@ static int chunk_push(struct linkqueue *lq, unsigned int chunk_size)
 	}
 	else
 	{
-		*qe = chunk_size;
+		qe->chunk_size = chunk_size;
+		qe->has_md5 = has_md5;
+		if (has_md5) memcpy(qe->md5, md5, 17);
 		queue_push(lq, (void *)qe);
 	}
 
@@ -314,14 +316,12 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 
 		while ((head + BLOCK_WIN_SIZE) <= tail)
 		{
-			memset(win_buf, 0, BLOCK_WIN_SIZE + 1);
 			memcpy(win_buf, buf + head, BLOCK_WIN_SIZE);
 			/*
 			 * Firstly, i think rabinhash is the best. However, it's performance is very bad.
 			 * After some testing, i found ELF_hash is better both on performance and dedup rate.
 			 * So, EFL_hash is default.
 			 */
-			/* hkey = g_cdc_chunk_hashfunc(win_buf); */
 			if (g_rolling_hash)
 			{
 				hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
@@ -337,7 +337,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 				block_sz += BLOCK_WIN_SIZE;
 				if (block_sz >= BLOCK_MIN_SIZE)
 				{
-					chunk_push(lq, block_sz);
+					chunk_push(lq, block_sz, 0, NULL);
 					block_sz = 0;
 				}
 			}
@@ -348,7 +348,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 				/* get an abnormal chunk */
 				if (block_sz >= BLOCK_MAX_SIZE)
 				{
-					chunk_push(lq, block_sz);
+					chunk_push(lq, block_sz, 0, NULL);
 					block_sz = 0;
 				}
 			}
@@ -371,7 +371,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 	/* last chunk */
 	if ((rwsize + pos + block_sz) >= 0)
 	{
-		chunk_push(lq, ((rwsize + pos + block_sz) > BLOCK_MIN_SIZE) ? (rwsize + pos + block_sz) : BLOCK_MIN_SIZE);
+		chunk_push(lq, ((rwsize + pos + block_sz) > BLOCK_MIN_SIZE) ? (rwsize + pos + block_sz) : BLOCK_MIN_SIZE, 0, NULL);
 	}
 
 _FILE_CHUNK_CDC_EXIT:
@@ -408,7 +408,6 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 		tail = pos + rwsize;
 		while ((head + block_size) <= tail)
 		{
-			memset(win_buf, 0, BLOCK_MAX_SIZE + 1);
 			memcpy(win_buf, buf + head, block_size);
 			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, block_size) : 
 				adler32_rolling_checksum(hkey, block_size, buf[head-1], buf[head+block_size-1]);
@@ -417,12 +416,12 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 
 			/* this block is duplicate */
 			if (hash_exist(g_sb_htable_crc, crc_checksum))
-			{
+			{	
+				bflag = 2;
 				md5(win_buf, block_size, md5_checksum);
 				if (hash_exist(g_sb_htable_md5, md5_checksum))
 				{
-					if (slide_sz != 0) chunk_push(lq, slide_sz);
-					chunk_push(lq, block_size);
+					chunk_push(lq, (slide_sz != 0) ? slide_sz : block_size, 1, md5_checksum);
 					head += block_size;
 					slide_sz = 0;
 					bflag = 1;
@@ -430,14 +429,14 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 			}
 
 			/* this block is not duplicate */
-			if (bflag == 0)
+			if (bflag != 1)
 			{
 				head++;
 				slide_sz++;
 				if (slide_sz == block_size)
 				{
-					chunk_push(lq, block_size);
-					md5(win_buf, block_size, md5_checksum);
+					if (bflag != 2) md5(win_buf, block_size, md5_checksum);
+					chunk_push(lq, block_size, 1, md5_checksum);
 					hash_checkin(g_sb_htable_crc, crc_checksum);
 					hash_checkin(g_sb_htable_md5, md5_checksum);
 					slide_sz = 0;
@@ -451,7 +450,7 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 		memmove(buf, buf + head, pos);
 	}
 	/* last chunk */
-	if ((rwsize + pos) >= 0) chunk_push(lq, block_size);
+	if ((rwsize + pos) >= 0) chunk_push(lq, block_size, 0, NULL);
 
 _FILE_CHUNK_SB_EXIT:
 	lseek(fd, 0, SEEK_SET);
@@ -471,7 +470,8 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	dedup_entry_header dedup_entry_hdr;
 	dedup_logic_block_entry dedup_lblock_entry;
 	struct linkqueue *lq = NULL;
-	void *qe = NULL;
+	unsigned int has_md5 = 0;
+	chunk_qe *qe = NULL;
 
 
 	/* check if the filename already exists */
@@ -526,7 +526,11 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		(g_chunk_algo == DEDUP_CHUNK_CDC) ? file_chunk_cdc(fd, g_block_size, 0, lq) : 
 						    file_chunk_sb(fd, g_block_size, lq);
 		if (queue_pop(lq, &qe) == 0)
-			block_expect_size = *((unsigned int *)qe);
+		{
+			block_expect_size = qe->chunk_size;
+			has_md5 = qe->has_md5;
+			if (has_md5) memcpy(md5_checksum, qe->md5, 16);
+		}
 		else 
 			block_expect_size = BLOCK_MIN_SIZE;
 		break;
@@ -542,7 +546,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 			break;
 
 		/* calculate md5 */
-		md5(buf, rwsize, md5_checksum);
+		if (!has_md5) md5(buf, rwsize, md5_checksum);
 
 		/* check hashtable with hashkey 
 		   NOTE: no md5 collsion problem, but lose some performace 
@@ -621,7 +625,11 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		case DEDUP_CHUNK_CDC:
 		case DEDUP_CHUNK_SB:
 			if (0 == queue_pop(lq, &qe))
-				block_expect_size = *((unsigned int *)qe); 
+			{
+				block_expect_size = qe->chunk_size;
+				has_md5 = qe->has_md5;
+				if (has_md5) memcpy(md5_checksum, qe->md5, 16);
+			}
 			else 
 				block_expect_size = BLOCK_MIN_SIZE;
 			break;
