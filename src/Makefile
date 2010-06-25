@@ -150,7 +150,7 @@ top_srcdir = ..
 
 #CMDS = dedup md5 hashtest zfile bdiff
 CMDS = dedup
-AM_CFLAGS = -pg -g3 -Wall 
+AM_CFLAGS = -g3 -Wall 
 AM_LDFLAGS = -L.
 
 #md5_SOURCES = md5.c
