@@ -1,7 +1,7 @@
 #CMDS = dedup md5 hashtest zfile bdiff
 CMDS = dedup
 
-AM_CFLAGS = -pg -g3 -Wall 
+AM_CFLAGS = -g3 -Wall 
 AM_LDFLAGS = -L.
 
 bin_PROGRAMS = $(CMDS)
@@ -15,7 +15,7 @@ bin_PROGRAMS = $(CMDS)
 #zfile_CFLAGS = -DTESTZLIB
 #zfile_LDADD = -lz
 
-dedup_SOURCES = dedup.c md5.c hashtable.c hash.c rabinhash32.c libz.c queue.c
+dedup_SOURCES = dedup.c md5.c hashtable.c hash.c rabinhash32.c checksum.c libz.c queue.c
 dedup_LDADD = -lz
 
 #bdiff_SOURCES = bdiff.c md5.c hashtable.c

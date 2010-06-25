@@ -126,7 +126,7 @@ static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 	fprintf(stderr, "magic_num = 0x%x\n", dedup_pkg_hdr.magic_num);
 	fprintf(stderr, "file_num = %d\n", dedup_pkg_hdr.file_num);
 	fprintf(stderr, "bdata_offset = %lld\n", dedup_pkg_hdr.bdata_offset);
-	fprintf(stderr, "metadata_offset = %lld\n\n", dedup_pkg_hdr.metadata_offset);
+	fprintf(stderr, "metadata_offset = %lld\n", dedup_pkg_hdr.metadata_offset);
 }
 
 static void dedup_clean()
@@ -315,7 +315,9 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 			 * After some testing, i found ELF_hash is better both on performance and dedup rate.
 			 * So, EFL_hash is default.
 			 */
-			hkey = g_cdc_chunk_hashfunc(win_buf);
+			/* hkey = g_cdc_chunk_hashfunc(win_buf); */
+			hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
+				adler32_rolling_checksum(hkey, BLOCK_WIN_SIZE, buf[head-1], buf[head+BLOCK_WIN_SIZE-1]);
 			/* get a normal chunk */
 			if ((hkey % d) == r)
 			{
@@ -396,7 +398,8 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 		{
 			memset(win_buf, 0, BLOCK_MAX_SIZE + 1);
 			memcpy(win_buf, buf + head, block_size);
-			hkey = CRC_hash(win_buf);
+			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, block_size) : 
+				adler32_rolling_checksum(hkey, block_size, buf[head-1], buf[head+block_size-1]);
 			uint_2_str(hkey, crc_checksum);
 			bflag = 0;
 
