@@ -105,6 +105,7 @@ enum DEDUP_CHUNK_ALGORITHMS {
 	DEDUP_CHUNK_SB
 };
 
+#define DEDUP_ROLLING_HASH	"adler_hash"
 typedef struct _cdc_chunk_hashfunc {
 	char hashfunc_name[16];
 	unsigned int (*hashfunc)(char *str);

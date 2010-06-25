@@ -23,6 +23,10 @@ unsigned int adler32_checksum(char *buf, int len)
     return (s1 & 0xffff) + (s2 << 16);
 }
 
+/*
+ * adler32_checksum(X0, ..., Xn), X0, Xn+1 ----> adler32_checksum(X1, ..., Xn+1)
+ * where csum is adler32_checksum(X0, ..., Xn), c1 is X0, c2 is Xn+1
+ */
 unsigned int adler32_rolling_checksum(unsigned int csum, int len, char c1, char c2)
 {
 	unsigned int s1, s2, s11, s22;

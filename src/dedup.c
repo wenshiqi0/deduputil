@@ -66,7 +66,7 @@ static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
 
 /* CDC chunking hash function */
 static unsigned int (*g_cdc_chunk_hashfunc)(char *str) = ELF_hash;
-
+static unsigned int g_rolling_hash = 0;
 static cdc_chunk_hashfunc CDC_CHUNK_HASHFUNC[] =
 {
 	{"simple_hash", simple_hash},
@@ -86,7 +86,13 @@ static int set_cdc_chunk_hashfunc(char *hash_func_name)
 {
 	int i;
 	int nr = sizeof(CDC_CHUNK_HASHFUNC) / sizeof(CDC_CHUNK_HASHFUNC[0]);
-	
+
+	if (0 == strcmp(hash_func_name, DEDUP_ROLLING_HASH))
+	{
+		g_rolling_hash = 1;
+		return 0;
+	}
+
 	for (i = 0; i < nr; ++i)
 	{
 		if (0 == strcmp(hash_func_name, CDC_CHUNK_HASHFUNC[i].hashfunc_name))
@@ -316,8 +322,14 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 			 * So, EFL_hash is default.
 			 */
 			/* hkey = g_cdc_chunk_hashfunc(win_buf); */
-			hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
-				adler32_rolling_checksum(hkey, BLOCK_WIN_SIZE, buf[head-1], buf[head+BLOCK_WIN_SIZE-1]);
+			if (g_rolling_hash)
+			{
+				hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
+					adler32_rolling_checksum(hkey, BLOCK_WIN_SIZE, buf[head-1], buf[head+BLOCK_WIN_SIZE-1]);
+			} 
+			else 
+				hkey = g_cdc_chunk_hashfunc(win_buf);
+
 			/* get a normal chunk */
 			if ((hkey % d) == r)
 			{
@@ -1574,7 +1586,7 @@ static void usage()
 	fprintf(stderr, "  -f, --hashfunc   set hash function for CDC file chunking, ELF_hash as default\n");
 	fprintf(stderr, "                   hash functions list as followed: \n");
 	fprintf(stderr, "                   rabin_hash, RS_hash, JS_hash, PJW_hash, ELF_hash, AP_hash\n");
-	fprintf(stderr, "                   simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash\n");
+	fprintf(stderr, "                   simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash, adler_hash\n");
         fprintf(stderr, "  -z, --compress   filter the archive through zlib compression\n");
         fprintf(stderr, "  -b, --block      block size for deduplication, 4096 as default\n");
         fprintf(stderr, "  -H, --hashtable  hashtable backet number, 10240 as default\n");
