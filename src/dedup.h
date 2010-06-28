@@ -47,10 +47,11 @@ typedef unsigned int block_id_t;
 
 #define BLOCK_SIZE	4096	/* 4K Bytes */
 #define BLOCK_MIN_SIZE	512
-#define BLOCK_MAX_SIZE	131072	/* 128K Bytes */
+#define BLOCK_MAX_SIZE	32768	/* 32K Bytes */
 #define BLOCK_WIN_SIZE	48
 #define BACKET_SIZE     102400
-#define MAX_PATH_LEN	255
+#define BUF_MAX_SIZE	131072	/* 128K Bytes */
+#define PATH_MAX_LEN	255
 #define TRUE		1
 #define FALSE		0
 

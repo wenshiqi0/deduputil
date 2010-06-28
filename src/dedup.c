@@ -56,17 +56,17 @@ static hashtable *g_sb_htable_crc = NULL;
 static hashtable *g_sb_htable_md5 = NULL;
 
 /* deduplication temporary files */
-static char tmp_file[MAX_PATH_LEN] = {0};
-static char ldata_file[MAX_PATH_LEN] = {0};
-static char bdata_file[MAX_PATH_LEN] = {0};
-static char mdata_file[MAX_PATH_LEN] = {0};
+static char tmp_file[PATH_MAX_LEN] = {0};
+static char ldata_file[PATH_MAX_LEN] = {0};
+static char bdata_file[PATH_MAX_LEN] = {0};
+static char mdata_file[PATH_MAX_LEN] = {0};
 
 /* chunking algorithms */
 static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
 
 /* CDC chunking hash function */
 static unsigned int (*g_cdc_chunk_hashfunc)(char *str) = ELF_hash;
-static unsigned int g_rolling_hash = 0;
+static unsigned int g_rolling_hash = 1;
 static cdc_chunk_hashfunc CDC_CHUNK_HASHFUNC[] =
 {
 	{"simple_hash", simple_hash},
@@ -98,6 +98,7 @@ static int set_cdc_chunk_hashfunc(char *hash_func_name)
 		if (0 == strcmp(hash_func_name, CDC_CHUNK_HASHFUNC[i].hashfunc_name))
 		{
 			g_cdc_chunk_hashfunc = CDC_CHUNK_HASHFUNC[i].hashfunc;
+			g_rolling_hash = 0;
 			return 0;
 		}
 	}
@@ -286,11 +287,11 @@ static int uint_2_str(unsigned int x, char *str)
  */
 static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkqueue *lq)
 {
-	char buf[BLOCK_MAX_SIZE] = {0};
+	char buf[BUF_MAX_SIZE] = {0};
 	char win_buf[BLOCK_WIN_SIZE + 1] = {0};
 	unsigned int pos = 0;
 	unsigned int rwsize = 0;
-	unsigned int exp_rwsize = BLOCK_MAX_SIZE;
+	unsigned int exp_rwsize = BUF_MAX_SIZE;
 	unsigned int head, tail;
 	unsigned int block_sz = 0;
 	unsigned int *qe = NULL;
@@ -320,7 +321,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 			/*
 			 * Firstly, i think rabinhash is the best. However, it's performance is very bad.
 			 * After some testing, i found ELF_hash is better both on performance and dedup rate.
-			 * So, EFL_hash is default.
+			 * So, EFL_hash is default. Now, adler_hash as default.
 			 */
 			if (g_rolling_hash)
 			{
@@ -365,7 +366,7 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 
 		/* read expected data from file to full up buf */
 		pos = tail - head;
-		exp_rwsize = BLOCK_MAX_SIZE - pos;
+		exp_rwsize = BUF_MAX_SIZE - pos;
 		memmove(buf, buf + head, pos);
 	}
 	/* last chunk */
@@ -384,14 +385,14 @@ _FILE_CHUNK_CDC_EXIT:
  */
 static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 {
-	char buf[BLOCK_MAX_SIZE] = {0};
+	char buf[BUF_MAX_SIZE] = {0};
 	char win_buf[BLOCK_MAX_SIZE + 1] = {0};
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned char crc_checksum[16] = {0};
 	unsigned int pos = 0;
 	unsigned int slide_sz = 0;
 	unsigned int rwsize = 0;
-	unsigned int exp_rwsize = BLOCK_MAX_SIZE;
+	unsigned int exp_rwsize = BUF_MAX_SIZE;
 	unsigned int head, tail;
 	unsigned int *qe = NULL;
 	unsigned int hkey = 0;
@@ -446,7 +447,7 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 
 		/* read expected data from file to full up buf */
 		pos = tail - head;
-		exp_rwsize = BLOCK_MAX_SIZE - pos;
+		exp_rwsize = BUF_MAX_SIZE - pos;
 		memmove(buf, buf + head, pos);
 	}
 	/* last chunk */
@@ -503,7 +504,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
-	buf = (char *)malloc(BLOCK_MAX_SIZE);
+	buf = (char *)malloc(BUF_MAX_SIZE);
 	if (buf == NULL)
 	{
 		perror("malloc buf in dedup_regfile");
@@ -615,7 +616,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		}
 
 		metadata[pos] = cbindex;
-		memset(buf, 0, BLOCK_MAX_SIZE);
+		memset(buf, 0, BUF_MAX_SIZE);
 		memset(md5_checksum, 0, 16 + 1);
 		pos++;
 
@@ -673,7 +674,7 @@ static int dedup_dir(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int
 	DIR *dp;
 	struct dirent *dirp;
 	struct stat statbuf;
-	char subpath[MAX_PATH_LEN] = {0};
+	char subpath[PATH_MAX_LEN] = {0};
 	int ret;
 
 	if (NULL == (dp = opendir(fullpath)))
@@ -717,7 +718,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	dedup_entry_header dedup_entry_hdr;
 	dedup_logic_block_entry dedup_lblock_entry;
 	unsigned long long offset;
-	char pathname[MAX_PATH_LEN] = {0};
+	char pathname[PATH_MAX_LEN] = {0};
 
 	if (read(fd_pkg, dedup_pkg_hdr, DEDUP_PKGHDR_SIZE) != DEDUP_PKGHDR_SIZE)
 	{
@@ -739,7 +740,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	g_ldata_offset = dedup_pkg_hdr->metadata_offset - dedup_pkg_hdr->bdata_offset;
 
 	/* get bdata and rebuild hashtable */
-	buf = (char *)malloc(BLOCK_MAX_SIZE);
+	buf = (char *)malloc(BUF_MAX_SIZE);
 	if (buf == NULL)
 	{
 		ret = errno;
@@ -824,7 +825,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
                 }
 
                 /* read pathname from deduped package opened */
-                memset(pathname, 0, MAX_PATH_LEN);
+                memset(pathname, 0, PATH_MAX_LEN);
                 read(fd_pkg, pathname, dedup_entry_hdr.path_len);
 		if (0 == hash_exist(g_htable, pathname)) hash_checkin(g_htable, pathname);
 
@@ -982,7 +983,7 @@ static int dedup_package_list(char *src_file, int verbose)
 	dedup_package_header dedup_pkg_hdr;
 	dedup_entry_header dedup_entry_hdr;
 	unsigned long long offset;
-	char pathname[MAX_PATH_LEN] = {0};
+	char pathname[PATH_MAX_LEN] = {0};
 
         if (-1 == (fd = open(src_file, O_RDONLY)))
         {
@@ -1020,7 +1021,7 @@ static int dedup_package_list(char *src_file, int verbose)
 		}
 		
 		/* read pathname from  deduped package opened */
-		memset(pathname, 0, MAX_PATH_LEN);
+		memset(pathname, 0, PATH_MAX_LEN);
 		read(fd, pathname, dedup_entry_hdr.path_len);
 		fprintf(stderr, "%s\n", pathname);
 
@@ -1180,7 +1181,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	block_id_t *metadata = NULL;
 	block_id_t TOBE_REMOVED;
 	unsigned long long offset;
-	char pathname[MAX_PATH_LEN] = {0};
+	char pathname[PATH_MAX_LEN] = {0};
 
 	/* open files */
 	if (-1 == (fd_pkg = open(file_pkg, O_RDWR | O_CREAT, 0755)))
@@ -1250,7 +1251,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 			goto _DEDUP_PKG_REMOVE_EXIT;
 		}
 		
-		memset(pathname, 0, MAX_PATH_LEN);
+		memset(pathname, 0, PATH_MAX_LEN);
 		read(fd_pkg, pathname, dedup_entry_hdr.path_len);
 		/* discard file to be removed */
 		if (file_in_lists(pathname, files_nr, files_remove) != 0)
@@ -1320,7 +1321,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 			goto _DEDUP_PKG_REMOVE_EXIT;
 		}
 		
-		memset(pathname, 0, MAX_PATH_LEN);
+		memset(pathname, 0, PATH_MAX_LEN);
 		read(fd_pkg, pathname, dedup_entry_hdr.path_len);
 		if (file_in_lists(pathname, files_nr, files_remove) != 0)
 		{
@@ -1405,8 +1406,8 @@ _DEDUP_PKG_REMOVE_EXIT:
 
 static int prepare_target_file(char *pathname, char *basepath, int mode)
 {
-	char fullpath[MAX_PATH_LEN] = {0};
-	char path[MAX_PATH_LEN] = {0};
+	char fullpath[PATH_MAX_LEN] = {0};
+	char path[PATH_MAX_LEN] = {0};
 	char *p = NULL;
 	int pos = 0, fd;
 
@@ -1426,7 +1427,7 @@ static int prepare_target_file(char *pathname, char *basepath, int mode)
 
 static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_entry_header dedup_entry_hdr, char *dest_dir, int verbose)
 {
-	char pathname[MAX_PATH_LEN] = {0};
+	char pathname[PATH_MAX_LEN] = {0};
 	block_id_t *metadata = NULL;
 	unsigned int block_num = 0;
 	unsigned int rwsize = 0;
@@ -1443,7 +1444,7 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 		return errno;
 	}
 
-	buf = (char *)malloc(BLOCK_MAX_SIZE);
+	buf = (char *)malloc(BUF_MAX_SIZE);
 	last_block_buf = (char *)malloc(dedup_entry_hdr.last_block_size);
 	if (NULL == buf || NULL == last_block_buf)
 	{
@@ -1496,7 +1497,7 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 	dedup_package_header dedup_pkg_hdr;
 	dedup_entry_header dedup_entry_hdr;
 	unsigned long long offset;
-	char pathname[MAX_PATH_LEN] = {0};
+	char pathname[PATH_MAX_LEN] = {0};
 
         if (-1 == (fd = open(src_file, O_RDONLY)))
         {
@@ -1547,7 +1548,7 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 		else
 		/* extract specific file */
 		{
-			memset(pathname, 0, MAX_PATH_LEN);
+			memset(pathname, 0, PATH_MAX_LEN);
 			read(fd, pathname, dedup_entry_hdr.path_len);
 			lseek(fd, offset + DEDUP_ENTRYHDR_SIZE, SEEK_SET);
 			if (strcmp(pathname, subpath) == 0)
@@ -1618,7 +1619,7 @@ int main(int argc, char *argv[])
 	int ret = -1, c;
 	int dedup_op = -1, dedup_op_nr = 0;
 	int args_nr = 0;
-	char path[MAX_PATH_LEN] = ".\0";
+	char path[PATH_MAX_LEN] = ".\0";
 	char *subpath = NULL;
 
 	struct option longopts[] =
