@@ -53,7 +53,6 @@ static hashtable *g_htable = NULL;
 
 /* hashtable for SB file chunking */
 static hashtable *g_sb_htable_crc = NULL;
-static hashtable *g_sb_htable_md5 = NULL;
 
 /* deduplication temporary files */
 static char tmp_file[PATH_MAX_LEN] = {0};
@@ -236,27 +235,6 @@ _BLOCK_CMP_EXIT:
 	return ret;
 }
 
-static int chunk_push(struct linkqueue *lq, unsigned int chunk_size, unsigned int has_md5, char *md5)
-{
-	chunk_qe *qe = NULL;
-	
-	qe = (chunk_qe *) malloc(CHUNK_QE_SIZE);
-	if (qe == NULL)
-	{
-		perror("malloc in file_chunk_cdc");
-		return -1;
-	}
-	else
-	{
-		qe->chunk_size = chunk_size;
-		qe->has_md5 = has_md5;
-		if (has_md5) memcpy(qe->md5, md5, 17);
-		queue_push(lq, (void *)qe);
-	}
-
-	return 0;
-}
-
 static int uint_2_str(unsigned int x, char *str)
 {
 	int i = 0;
@@ -280,38 +258,116 @@ static int uint_2_str(unsigned int x, char *str)
 	return xx;
 }
 
+static int dedup_regfile_block_process(char *block_buf, unsigned int block_len, char *md5_checksum, int fd_ldata, 
+	int fd_bdata, unsigned int *pos, unsigned int *block_num, block_id_t **metadata, hashtable *htable)
+{
+	/* check hashtable with hashkey 
+	   NOTE: no md5 collsion problem, but lose some performace 
+	   hashtable entry format: (md5_key, block_id list)
+	   +--------------------------------+
+	   | id num | id1 | id2 | ... | idn |
+	   +--------------------------------+
+	*/
+
+	dedup_logic_block_entry dedup_lblock_entry;
+	unsigned int cbindex;
+	int bflag = 0;
+	unsigned int *bindex = (block_id_t *)hash_value((void *)md5_checksum, htable);
+
+	/* the block exists */
+	if (bindex != NULL)
+	{
+		int i;
+		for (i = 0; i < *bindex; i++)
+		{
+			if (0 == block_cmp(block_buf, fd_ldata, fd_bdata, *(bindex + i + 1), block_len))
+			{
+				cbindex = *(bindex + i + 1);
+				bflag = 1;
+				break;
+			}
+		}
+	}
+
+	/* insert hash entry, write logic block into ldata, and write unique block into bdata*/
+	if (bindex == NULL || (bindex != NULL && bflag == 0))
+	{
+		if (bindex == NULL)
+			bflag = 1;
+
+		bindex = (bflag) ? (block_id_t *)malloc(BLOCK_ID_SIZE * 2) :
+			(block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 2));
+		if (NULL == bindex)
+		{
+			perror("malloc/realloc in dedup_regfile_block_process");
+			return errno;
+		}
+
+		*bindex = (bflag) ? 1 : (*bindex) + 1;
+		*(bindex + *bindex) = g_unique_block_nr;
+		cbindex = g_unique_block_nr;
+		dedup_lblock_entry.block_offset = g_ldata_offset;
+		dedup_lblock_entry.block_len = block_len;
+		hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
+		write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
+		write(fd_bdata, block_buf, block_len);
+		g_unique_block_nr++;
+		g_ldata_offset += block_len;
+	}
+
+	/* if metadata is not enough, realloc it */
+	if ((*pos + 1) >= (*block_num))
+	{
+		*metadata = realloc(*metadata, BLOCK_ID_SIZE * (*block_num + BLOCK_ID_ALLOC_INC));
+		if (NULL == (*metadata))
+		{
+			perror("realloc in dedup_regfile");
+			return errno;
+		}
+		*block_num += BLOCK_ID_ALLOC_INC;
+	}
+
+	(*metadata)[*pos] = cbindex;
+	(*pos)++;
+
+	return 0;
+}
+
 /*
  * content-defined chunking:
  * 1. BLOCK_MIN_SIZE <= block_size <= BLOCK_MAX_SIZE
  * 2. hash(block) % d == r
  */
-static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkqueue *lq)
+static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, unsigned int *block_num,
+	block_id_t **metadata, hashtable *htable, char *last_block_buf, unsigned int *last_block_len)
 {
 	char buf[BUF_MAX_SIZE] = {0};
+	char block_buf[BLOCK_MAX_SIZE] = {0};
 	char win_buf[BLOCK_WIN_SIZE + 1] = {0};
-	unsigned int pos = 0;
+	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned int bpos = 0;
 	unsigned int rwsize = 0;
 	unsigned int exp_rwsize = BUF_MAX_SIZE;
 	unsigned int head, tail;
-	unsigned int block_sz = 0;
-	unsigned int *qe = NULL;
+	unsigned int block_sz = 0, old_block_sz = 0;
 	unsigned int hkey = 0;
 	int ret = 0;
 
-	while(rwsize = read(fd, buf + pos, exp_rwsize))
+	while(rwsize = read(fd, buf + bpos, exp_rwsize))
 	{
 		/* last chunk */
-		if ((rwsize + pos + block_sz) < BLOCK_MIN_SIZE)
+		if ((rwsize + bpos + block_sz) < BLOCK_MIN_SIZE)
 			break;
 
 		head = 0;
-		tail = pos + rwsize;
+		tail = bpos + rwsize;
 		/* avoid unnecessary computation and comparsion */
 		if (block_sz < (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE))
 		{
-			unsigned int old_block_sz = block_sz;
+			old_block_sz = block_sz;
 			block_sz = ((block_sz + tail - head) > (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? 
 					BLOCK_MIN_SIZE - BLOCK_WIN_SIZE : block_sz + tail -head;  
+			memcpy(block_buf + old_block_sz, buf + head, block_sz - old_block_sz);
 			head += (block_sz - old_block_sz);
 		}
 
@@ -332,24 +388,38 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 				hkey = g_cdc_chunk_hashfunc(win_buf);
 
 			/* get a normal chunk */
-			if ((hkey % d) == r)
+			if ((hkey % CHUNK_CDC_D) == CHUNK_CDC_R)
 			{
+				memcpy(block_buf + block_sz, buf + head, BLOCK_WIN_SIZE);
 				head += BLOCK_WIN_SIZE;
 				block_sz += BLOCK_WIN_SIZE;
 				if (block_sz >= BLOCK_MIN_SIZE)
 				{
-					chunk_push(lq, block_sz, 0, NULL);
+					md5(block_buf, block_sz, md5_checksum);
+					if (0 != (ret = dedup_regfile_block_process(block_buf, block_sz, 
+						md5_checksum, fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+					{
+						perror("dedup_reggile_block_process in file_chunk_cdc");
+						goto _FILE_CHUNK_CDC_EXIT;
+					}
 					block_sz = 0;
 				}
 			}
 			else 
 			{
+				block_buf[block_sz] = buf[head];
 				head++;
 				block_sz++;
 				/* get an abnormal chunk */
 				if (block_sz >= BLOCK_MAX_SIZE)
 				{
-					chunk_push(lq, block_sz, 0, NULL);
+					md5(block_buf, block_sz, md5_checksum);
+					if (0 != (ret = dedup_regfile_block_process(block_buf, block_sz, 
+						md5_checksum, fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+					{
+						perror("dedup_reggile_block_process in file_chunk_cdc");
+						goto _FILE_CHUNK_CDC_EXIT;
+					}
 					block_sz = 0;
 				}
 			}
@@ -358,60 +428,63 @@ static int file_chunk_cdc(int fd, unsigned int d, unsigned int r, struct linkque
 			if (block_sz == 0)
 			{
 				block_sz = ((tail - head) > (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? 
-					BLOCK_MIN_SIZE - BLOCK_WIN_SIZE : tail - head; 
+					BLOCK_MIN_SIZE - BLOCK_WIN_SIZE : tail - head;
+				memcpy(block_buf, buf + head, block_sz);
 				head = ((tail - head) > (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? 
 					head + (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE) : tail;
 			}
 		}
 
 		/* read expected data from file to full up buf */
-		pos = tail - head;
-		exp_rwsize = BUF_MAX_SIZE - pos;
-		memmove(buf, buf + head, pos);
+		bpos = tail - head;
+		exp_rwsize = BUF_MAX_SIZE - bpos;
+		memmove(buf, buf + head, bpos);
 	}
 	/* last chunk */
-	if ((rwsize + pos + block_sz) >= 0)
+	*last_block_len = ((rwsize + bpos + block_sz) >= 0) ? rwsize + bpos + block_sz : 0;
+	if (*last_block_len > 0)
 	{
-		chunk_push(lq, ((rwsize + pos + block_sz) > BLOCK_MIN_SIZE) ? (rwsize + pos + block_sz) : BLOCK_MIN_SIZE, 0, NULL);
+		memcpy(last_block_buf, block_buf, block_sz);
+		memcpy(last_block_buf + block_sz, buf, rwsize + bpos);
 	}
 
 _FILE_CHUNK_CDC_EXIT:
-	lseek(fd, 0, SEEK_SET);
 	return ret;
 }
 
 /*
  * slideing block chunking, performance is a big issue.
  */
-static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
+static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, unsigned int *block_num,
+         block_id_t **metadata, hashtable *htable, char *last_block_buf, unsigned int *last_block_len)
 {
 	char buf[BUF_MAX_SIZE] = {0};
 	char win_buf[BLOCK_MAX_SIZE + 1] = {0};
+	char block_buf[BLOCK_MAX_SIZE] = {0};
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned char crc_checksum[16] = {0};
-	unsigned int pos = 0;
+	unsigned int bpos = 0;
 	unsigned int slide_sz = 0;
 	unsigned int rwsize = 0;
 	unsigned int exp_rwsize = BUF_MAX_SIZE;
 	unsigned int head, tail;
-	unsigned int *qe = NULL;
 	unsigned int hkey = 0;
 	unsigned int bflag = 0;
 	int ret = 0;
 
-	while(rwsize = read(fd, buf + pos, exp_rwsize))
+	while(rwsize = read(fd, buf + bpos, exp_rwsize))
 	{
 		/* last chunk */
-		if ((rwsize + pos) < block_size)
+		if ((rwsize + bpos + slide_sz) < g_block_size)
 			break;
 
 		head = 0;
-		tail = pos + rwsize;
-		while ((head + block_size) <= tail)
+		tail = bpos + rwsize;
+		while ((head + g_block_size) <= tail)
 		{
-			memcpy(win_buf, buf + head, block_size);
-			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, block_size) : 
-				adler32_rolling_checksum(hkey, block_size, buf[head-1], buf[head+block_size-1]);
+			memcpy(win_buf, buf + head, g_block_size);
+			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, g_block_size) : 
+				adler32_rolling_checksum(hkey, g_block_size, buf[head-1], buf[head+g_block_size-1]);
 			uint_2_str(hkey, crc_checksum);
 			bflag = 0;
 
@@ -419,11 +492,27 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 			if (hash_exist(g_sb_htable_crc, crc_checksum))
 			{	
 				bflag = 2;
-				md5(win_buf, block_size, md5_checksum);
-				if (hash_exist(g_sb_htable_md5, md5_checksum))
+				md5(win_buf, g_block_size, md5_checksum);
+				if (hash_exist(htable, md5_checksum))
 				{
-					chunk_push(lq, (slide_sz != 0) ? slide_sz : block_size, 1, md5_checksum);
-					head += block_size;
+					if (0 != (ret = dedup_regfile_block_process(win_buf, g_block_size, md5_checksum, 
+						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+					{
+						perror("dedup_regfile_block_process in file_chunk_sb");
+						goto _FILE_CHUNK_SB_EXIT;
+					}
+
+					if (slide_sz != 0)
+					{
+						md5(block_buf, slide_sz, md5_checksum);
+						if (0 != (ret = dedup_regfile_block_process(block_buf, slide_sz, md5_checksum, 
+							fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+						{
+							perror("dedup_regfile_block_process in file_chunk_sb");
+							goto _FILE_CHUNK_SB_EXIT;
+						}
+					}
+					head += g_block_size;
 					slide_sz = 0;
 					bflag = 1;
 				}
@@ -432,47 +521,88 @@ static int file_chunk_sb(int fd, unsigned int block_size, struct linkqueue *lq)
 			/* this block is not duplicate */
 			if (bflag != 1)
 			{
+				block_buf[slide_sz] = buf[head];
 				head++;
 				slide_sz++;
-				if (slide_sz == block_size)
+				if (slide_sz == g_block_size)
 				{
-					if (bflag != 2) md5(win_buf, block_size, md5_checksum);
-					chunk_push(lq, block_size, 1, md5_checksum);
+					if (bflag != 2) md5(block_buf, g_block_size, md5_checksum);
+					if (0 != (ret = dedup_regfile_block_process(block_buf, g_block_size, md5_checksum, 
+						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+					{
+						perror("dedup_regfile_block_process in file_chunk_sb");
+						goto _FILE_CHUNK_SB_EXIT;
+					}
 					hash_checkin(g_sb_htable_crc, crc_checksum);
-					hash_checkin(g_sb_htable_md5, md5_checksum);
 					slide_sz = 0;
 				}
 			}
 		}
 
 		/* read expected data from file to full up buf */
-		pos = tail - head;
-		exp_rwsize = BUF_MAX_SIZE - pos;
-		memmove(buf, buf + head, pos);
+		bpos = tail - head;
+		exp_rwsize = BUF_MAX_SIZE - bpos;
+		memmove(buf, buf + head, bpos);
 	}
 	/* last chunk */
-	if ((rwsize + pos) >= 0) chunk_push(lq, block_size, 0, NULL);
+	*last_block_len = ((rwsize + bpos + slide_sz) > 0) ? rwsize + bpos + slide_sz : 0;
+	if (*last_block_len > 0)
+	{
+		memcpy(last_block_buf, block_buf, slide_sz);
+		memcpy(last_block_buf + slide_sz, buf, rwsize + bpos);
+	}
 
 _FILE_CHUNK_SB_EXIT:
 	lseek(fd, 0, SEEK_SET);
 	return ret;
 }
 
+static int file_chunk_fsp(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, unsigned int *block_num, 
+	block_id_t **metadata, hashtable *htable, char *last_block_buf, unsigned int *last_block_len)
+{
+	int ret = 0;
+	unsigned int rwsize;
+	unsigned char md5_checksum[16 + 1] = {0};
+	char *buf = NULL;
+
+	buf = (char *)malloc(g_block_size);
+	if (buf == NULL)
+	{
+		perror("malloc in file_chunk_fsp");
+		return errno;
+	}
+
+	while (rwsize = read(fd, buf, g_block_size))
+        {
+                /* if the last block */
+                if (rwsize != g_block_size)
+                        break;
+
+                /* calculate md5 */
+                md5(buf, rwsize, md5_checksum);
+		if (0 != (ret = dedup_regfile_block_process(buf, rwsize, md5_checksum, fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+		{
+			perror("dedup_regfile_block_process in file_chunk_fsp");
+			goto _FILE_CHUNK_FSP_EXIT;
+		}
+	}
+	*last_block_len = (rwsize > 0) ? rwsize : 0;
+	if ((*last_block_len)) memcpy(last_block_buf, buf, *last_block_len);
+
+_FILE_CHUNK_FSP_EXIT:
+	if (buf) free(buf);
+	return ret;
+}
+ 
 static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
 {
 	int fd, ret = 0;
-	char *buf = NULL;
-	unsigned int rwsize, pos;
-	unsigned char md5_checksum[16 + 1] = {0};
+	char *last_block_buf = NULL;
+	unsigned int last_block_len, pos;
 	block_id_t *metadata = NULL;
 	unsigned int block_num = 0;
-	unsigned int block_expect_size;
 	struct stat statbuf;
 	dedup_entry_header dedup_entry_hdr;
-	dedup_logic_block_entry dedup_lblock_entry;
-	struct linkqueue *lq = NULL;
-	unsigned int has_md5 = 0;
-	chunk_qe *qe = NULL;
 
 
 	/* check if the filename already exists */
@@ -504,154 +634,46 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
-	buf = (char *)malloc(BUF_MAX_SIZE);
-	if (buf == NULL)
+	last_block_buf = (char *)malloc(BUF_MAX_SIZE);
+	if (last_block_buf == NULL)
 	{
 		perror("malloc buf in dedup_regfile");
 		ret = errno;
 		goto _DEDUP_REGFILE_EXIT;
 	}
 
-	/* chunking file and get first block_expect_size */
+	/* file chunking and block deduplication */
 	pos = 0;
 	switch (g_chunk_algo)
 	{
-	case DEDUP_CHUNK_CDC:
-	case DEDUP_CHUNK_SB:
-		if (NULL == (lq = queue_creat()))
-		{
-			perror("queue_creat in dedup_regfile");
-			ret = -1;
-			goto _DEDUP_REGFILE_EXIT;
-		}
-		(g_chunk_algo == DEDUP_CHUNK_CDC) ? file_chunk_cdc(fd, g_block_size, 0, lq) : 
-						    file_chunk_sb(fd, g_block_size, lq);
-		if (queue_pop(lq, &qe) == 0)
-		{
-			block_expect_size = qe->chunk_size;
-			has_md5 = qe->has_md5;
-			if (has_md5) memcpy(md5_checksum, qe->md5, 16);
-		}
-		else 
-			block_expect_size = BLOCK_MIN_SIZE;
-		break;
 	case DEDUP_CHUNK_FSP:
-	default:
-		block_expect_size = g_block_size;
+		ret = file_chunk_fsp(fd, fd_ldata, fd_bdata, &pos, &block_num, &metadata, htable, last_block_buf, &last_block_len);
+		break;
+	case DEDUP_CHUNK_CDC:
+		ret = file_chunk_cdc(fd, fd_ldata, fd_bdata, &pos, &block_num, &metadata, htable, last_block_buf, &last_block_len);
+		break;
+	case DEDUP_CHUNK_SB:
+		ret = file_chunk_sb(fd, fd_ldata, fd_bdata, &pos, &block_num, &metadata, htable, last_block_buf, &last_block_len);
+		break;
 	}
-
-	while (rwsize = read(fd, buf, block_expect_size)) 
+	if (ret != 0)
 	{
-		/* if the last block */
-		if (rwsize != block_expect_size)
-			break;
-
-		/* calculate md5 */
-		if (!has_md5) md5(buf, rwsize, md5_checksum);
-
-		/* check hashtable with hashkey 
-		   NOTE: no md5 collsion problem, but lose some performace 
-		   hashtable entry format: (md5_key, block_id list)
-		   +--------------------------------+
-		   | id num | id1 | id2 | ... | idn |
-		   +--------------------------------+
-		*/
-		unsigned int cbindex;
-		int bflag = 0;
-		unsigned int *bindex = (block_id_t *)hash_value((void *)md5_checksum, htable);
-
-		/* the block exists */
-		if (bindex != NULL)
-		{
-			int i;
-			for (i = 0; i < *bindex; i++)
-			{
-				if (0 == block_cmp(buf, fd_ldata, fd_bdata, *(bindex + i + 1), block_expect_size))
-				{
-					cbindex = *(bindex + i + 1);
-					bflag = 1;
-					break;
-				}
-			}
-		}
-
-		/* insert hash entry, write logic block into ldata, and write unique block into bdata*/
-		if (bindex == NULL || (bindex != NULL && bflag == 0))
-		{
-			if (bindex == NULL)
-				bflag = 1;
-
-			bindex = (bflag) ? (block_id_t *)malloc(BLOCK_ID_SIZE * 2) :
-				(block_id_t *)realloc(bindex, BLOCK_ID_SIZE * ((*bindex) + 2));
-			if (NULL == bindex)
-			{
-				perror("malloc/realloc in dedup_regfile");
-				ret = errno;
-				goto _DEDUP_REGFILE_EXIT;
-			}
-
-			*bindex = (bflag) ? 1 : (*bindex) + 1;
-			*(bindex + *bindex) = g_unique_block_nr;
-			cbindex = g_unique_block_nr;
-			dedup_lblock_entry.block_offset = g_ldata_offset;
-			dedup_lblock_entry.block_len = rwsize;
-			hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
-			write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
-			write(fd_bdata, buf, rwsize);
-			g_unique_block_nr++;
-			g_ldata_offset += rwsize;
-		}
-
-		/* if metadata is not enough, realloc it */
-		if ((pos + 1) >= block_num)
-		{
-			metadata = realloc(metadata, BLOCK_ID_SIZE * (block_num + BLOCK_ID_ALLOC_INC));
-			if (NULL == metadata)
-			{
-				perror("realloc in dedup_regfile");
-				ret = errno;
-				goto _DEDUP_REGFILE_EXIT;
-			}
-			block_num += BLOCK_ID_ALLOC_INC;
-		}
-
-		metadata[pos] = cbindex;
-		memset(buf, 0, BUF_MAX_SIZE);
-		memset(md5_checksum, 0, 16 + 1);
-		pos++;
-
-		/* update block_expect_size */
-		switch (g_chunk_algo)
-		{
-		case DEDUP_CHUNK_CDC:
-		case DEDUP_CHUNK_SB:
-			if (0 == queue_pop(lq, &qe))
-			{
-				block_expect_size = qe->chunk_size;
-				has_md5 = qe->has_md5;
-				if (has_md5) memcpy(md5_checksum, qe->md5, 16);
-			}
-			else 
-				block_expect_size = BLOCK_MIN_SIZE;
-			break;
-		case DEDUP_CHUNK_FSP:
-		default:
-			break;
-		}
+		perror("file_chunk in dedup_regfile");
+		goto _DEDUP_REGFILE_EXIT;
 	}
 
 	/* write metadata into mdata */
 	dedup_entry_hdr.path_len = strlen(fullpath) - prepos;
 	dedup_entry_hdr.block_num = pos;
 	dedup_entry_hdr.entry_size = BLOCK_ID_SIZE;
-	dedup_entry_hdr.last_block_size = rwsize;
+	dedup_entry_hdr.last_block_size = last_block_len;
 	dedup_entry_hdr.mode = statbuf.st_mode;
 	dedup_entry_hdr.old_size = statbuf.st_blocks * 512;
 
 	write(fd_mdata, &dedup_entry_hdr, sizeof(dedup_entry_header));
 	write(fd_mdata, fullpath + prepos, dedup_entry_hdr.path_len);
 	write(fd_mdata, metadata, BLOCK_ID_SIZE * pos);
-	write(fd_mdata, buf, rwsize);
+	write(fd_mdata, last_block_buf, last_block_len);
 
 	g_regular_file_nr++;
 	hash_checkin(g_htable, fullpath);
@@ -659,12 +681,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 _DEDUP_REGFILE_EXIT:
 	close(fd);
 	if (metadata != NULL) free(metadata);
-	if (buf != NULL) free(buf);
-	if (lq != NULL) 
-	{
-		queue_destroy(lq);
-		free(lq);
-	}
+	if (last_block_buf != NULL) free(last_block_buf);
 
 	return ret;
 }
@@ -1669,6 +1686,11 @@ int main(int argc, char *argv[])
 			break;
 		case 'b':
 			g_block_size = atoi(optarg);
+			if(g_block_size > BLOCK_MAX_SIZE)
+			{
+				fprintf("block size(%d) > BLOCK_MAX_SIZE(%d)\n", g_block_size, BLOCK_MAX_SIZE);
+				bhelp = 1;
+			}
 			break;
 		case 'H':
 			g_htab_backet_nr = atoi(optarg);
@@ -1727,8 +1749,7 @@ int main(int argc, char *argv[])
 	if (g_chunk_algo == DEDUP_CHUNK_SB)
 	{
 		g_sb_htable_crc = create_hashtable(g_htab_backet_nr);
-		g_sb_htable_md5 = create_hashtable(g_htab_backet_nr);
-		if (NULL == g_sb_htable_crc || NULL == g_sb_htable_md5)
+		if (NULL == g_sb_htable_crc)
 		{
 			perror("create_hashtable in main");
 			return -1;
@@ -1779,7 +1800,6 @@ int main(int argc, char *argv[])
 
 	if (g_htable) hash_free(g_htable);
 	if (g_sb_htable_crc) hash_free(g_sb_htable_crc);
-	if (g_sb_htable_md5) hash_free(g_sb_htable_md5);
 	dedup_clean();
 	return ret;
 }

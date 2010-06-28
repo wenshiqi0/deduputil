@@ -2,10 +2,10 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT(dedup, 1.0, Aigui.Liu@gmail.com)
+AC_INIT(dedup, 1.2, Aigui.Liu@gmail.com)
 AC_CONFIG_SRCDIR([src/dedup.c])
 AC_CONFIG_HEADER(config.h)
-AM_INIT_AUTOMAKE(dedup, 1.0)
+AM_INIT_AUTOMAKE(dedup, 1.2)
 
 # Checks for programs.
 AC_PROG_CC

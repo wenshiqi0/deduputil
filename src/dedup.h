@@ -38,7 +38,7 @@
 extern "C" {
 #endif
 
-#define DEDUPUTIL_VERSION	"1.0"
+#define DEDUPUTIL_VERSION	"1.2"
 
 /* deduplication block id type */
 typedef unsigned int block_id_t;
@@ -105,19 +105,14 @@ enum DEDUP_CHUNK_ALGORITHMS {
 	DEDUP_CHUNK_CDC,
 	DEDUP_CHUNK_SB
 };
+#define CHUNK_CDC_D	8192
+#define CHUNK_CDC_R	0
 
 #define DEDUP_ROLLING_HASH	"adler_hash"
 typedef struct _cdc_chunk_hashfunc {
 	char hashfunc_name[16];
 	unsigned int (*hashfunc)(char *str);
 } cdc_chunk_hashfunc;
-
-typedef struct _chunk_qe {
-	unsigned int chunk_size;
-	unsigned int has_md5;
-	char md5[16 + 1];
-} chunk_qe;
-#define CHUNK_QE_SIZE	(sizeof(chunk_qe))
 
 /* magic number for temporary filename */
 #define FILENAME_MAGIC_NUM	"d7d1b627a34d5b56dae225cc4f03ddf7"
