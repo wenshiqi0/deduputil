@@ -17,7 +17,7 @@
 /* 
  * deduplication file data layout
  * +---------------------------------------------------------------------+
- * |  header  |  logic block data  |  unique block data |  file metadata |
+ * |  header  |  unique block data  |  logic block data |  file metadata |
  * +---------------------------------------------------------------------+
  *
  * file metedata entry layout

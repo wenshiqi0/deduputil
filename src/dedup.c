@@ -318,13 +318,13 @@ static int dedup_regfile_block_process(char *block_buf, unsigned int block_len, 
 	/* if metadata is not enough, realloc it */
 	if ((*pos + 1) >= (*block_num))
 	{
-		*metadata = realloc(*metadata, BLOCK_ID_SIZE * (*block_num + BLOCK_ID_ALLOC_INC));
+		(*metadata) = realloc(*metadata, BLOCK_ID_SIZE * (*block_num + BLOCK_ID_ALLOC_INC));
 		if (NULL == (*metadata))
 		{
 			perror("realloc in dedup_regfile");
 			return errno;
 		}
-		*block_num += BLOCK_ID_ALLOC_INC;
+		(*block_num) += BLOCK_ID_ALLOC_INC;
 	}
 
 	(*metadata)[*pos] = cbindex;
