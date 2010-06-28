@@ -1688,7 +1688,7 @@ int main(int argc, char *argv[])
 			g_block_size = atoi(optarg);
 			if(g_block_size > BLOCK_MAX_SIZE)
 			{
-				fprintf("block size(%d) > BLOCK_MAX_SIZE(%d)\n", g_block_size, BLOCK_MAX_SIZE);
+				fprintf(stderr, "block size(%d) > BLOCK_MAX_SIZE(%d)\n", g_block_size, BLOCK_MAX_SIZE);
 				bhelp = 1;
 			}
 			break;
