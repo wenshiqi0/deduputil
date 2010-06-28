@@ -132,7 +132,7 @@ static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 	fprintf(stderr, "blockid_size = %d\n", dedup_pkg_hdr.blockid_size);
 	fprintf(stderr, "magic_num = 0x%x\n", dedup_pkg_hdr.magic_num);
 	fprintf(stderr, "file_num = %d\n", dedup_pkg_hdr.file_num);
-	fprintf(stderr, "bdata_offset = %lld\n", dedup_pkg_hdr.bdata_offset);
+	fprintf(stderr, "ldata_offset = %lld\n", dedup_pkg_hdr.ldata_offset);
 	fprintf(stderr, "metadata_offset = %lld\n", dedup_pkg_hdr.metadata_offset);
 }
 
@@ -198,7 +198,7 @@ static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex,
 	}
 
 	/* read phsyical block */
-	if (-1 == lseek(fd_bdata, dedup_lblock_entry.block_offset, SEEK_SET))
+	if (-1 == lseek(fd_bdata, dedup_lblock_entry.block_offset + DEDUP_PKGHDR_SIZE, SEEK_SET))
 	{
 		perror("lseek in block_cmp");
 		exit(errno);
@@ -464,7 +464,7 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	char *buf = NULL;
 	unsigned int rwsize, pos;
 	unsigned char md5_checksum[16 + 1] = {0};
-	unsigned int *metadata = NULL;
+	block_id_t *metadata = NULL;
 	unsigned int block_num = 0;
 	unsigned int block_expect_size;
 	struct stat statbuf;
@@ -737,7 +737,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	g_unique_block_nr = dedup_pkg_hdr->block_num;
 	g_regular_file_nr = dedup_pkg_hdr->file_num;
 	g_block_size = 	dedup_pkg_hdr->block_size;
-	g_ldata_offset = dedup_pkg_hdr->metadata_offset - dedup_pkg_hdr->bdata_offset;
+	g_ldata_offset = dedup_pkg_hdr->ldata_offset - DEDUP_PKGHDR_SIZE;
 
 	/* get bdata and rebuild hashtable */
 	buf = (char *)malloc(BUF_MAX_SIZE);
@@ -750,7 +750,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	for(i = 0; i < dedup_pkg_hdr->block_num; i++)
 	{
 		/* get logic block */
-		if (-1 == lseek(fd_pkg, DEDUP_PKGHDR_SIZE + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * i, SEEK_SET))
+		if (-1 == lseek(fd_pkg, dedup_pkg_hdr->ldata_offset + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * i, SEEK_SET))
 		{
 			perror("lseek in dedup_append_prepare");
 			ret = errno;
@@ -766,7 +766,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 		write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
 
 		/* get physical unique block */
-		if (-1 == lseek(fd_pkg, dedup_pkg_hdr->bdata_offset + dedup_lblock_entry.block_offset, SEEK_SET))
+		if (-1 == lseek(fd_pkg, DEDUP_PKGHDR_SIZE + dedup_lblock_entry.block_offset, SEEK_SET))
 		{
 			perror("lseek in dedup_append_prepare");
 			ret = errno;
@@ -890,6 +890,7 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 
 	g_unique_block_nr = 0;
 	g_regular_file_nr = 0;
+	write(fd_bdata, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
 	if (append)
 	{
 		ret = dedup_append_prepare(fd, fd_ldata, fd_bdata, fd_mdata, &dedup_pkg_hdr, htable);
@@ -936,24 +937,17 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	dedup_pkg_hdr.blockid_size = BLOCK_ID_SIZE;
 	dedup_pkg_hdr.magic_num = DEDUP_MAGIC_NUM;
 	dedup_pkg_hdr.file_num = g_regular_file_nr; 
-	dedup_pkg_hdr.bdata_offset = DEDUP_PKGHDR_SIZE + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * g_unique_block_nr;
-	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.bdata_offset + g_ldata_offset;
-	lseek(fd, 0, SEEK_SET);
-	write(fd, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
+	dedup_pkg_hdr.ldata_offset = DEDUP_PKGHDR_SIZE + g_ldata_offset;
+	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.ldata_offset + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * g_unique_block_nr;
+	lseek(fd_bdata, 0, SEEK_SET);
+	write(fd_bdata, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
+	lseek(fd_bdata, 0, SEEK_END);
 
 	/* fill up dedup package logic blocks */
 	lseek(fd_ldata, 0, SEEK_SET);
 	while(rwsize = read(fd_ldata, buf, 1024 * 1024))
 	{
-		write(fd, buf, rwsize);
-		memset(buf, 0, 1024 * 1024);
-	}
-
-	/* fill up dedup package unique physical blocks*/
-	lseek(fd_bdata, 0, SEEK_SET);
-	while(rwsize = read(fd_bdata, buf, 1024 * 1024))
-	{
-		write(fd, buf, rwsize);
+		write(fd_bdata, buf, rwsize);
 		memset(buf, 0, 1024 * 1024);
 	}
 
@@ -961,7 +955,7 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	lseek(fd_mdata, 0, SEEK_SET);
 	while(rwsize = read(fd_mdata, buf, 1024 * 1024))
 	{
-		write(fd, buf, rwsize);
+		write(fd_bdata, buf, rwsize);
 		memset(buf, 0, 1024 * 1024);
 	}
 
@@ -1219,7 +1213,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	g_unique_block_nr = dedup_pkg_hdr.block_num;
 	g_regular_file_nr = dedup_pkg_hdr.file_num;
 	g_block_size = dedup_pkg_hdr.block_size;
-	g_ldata_offset = dedup_pkg_hdr.metadata_offset - dedup_pkg_hdr.bdata_offset;
+	g_ldata_offset = dedup_pkg_hdr.ldata_offset - DEDUP_PKGHDR_SIZE;
 	TOBE_REMOVED = g_unique_block_nr;
 	if (verbose) show_pkg_header(dedup_pkg_hdr);
 
@@ -1283,9 +1277,10 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
+	write(fd_bdata, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
 	for (i = 0; i < g_unique_block_nr; i++)
 	{
-		lseek(fd_pkg, DEDUP_PKGHDR_SIZE + i * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET);
+		lseek(fd_pkg, dedup_pkg_hdr.ldata_offset + i * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET);
 		read(fd_pkg, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
 		if (lookup_table[i] == 0)
 		{
@@ -1296,7 +1291,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 		else
 		{
 			lookup_table[i] = i - remove_block_nr;
-			lseek(fd_pkg, dedup_pkg_hdr.bdata_offset + dedup_lblock_entry.block_offset, SEEK_SET);
+			lseek(fd_pkg, DEDUP_PKGHDR_SIZE + dedup_lblock_entry.block_offset, SEEK_SET);
 			read(fd_pkg, block_buf, dedup_lblock_entry.block_len);
 			dedup_lblock_entry.block_offset -= remove_bytes_nr;
 			write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
@@ -1358,27 +1353,19 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	dedup_pkg_hdr.blockid_size = BLOCK_ID_SIZE;
 	dedup_pkg_hdr.magic_num = DEDUP_MAGIC_NUM;
 	dedup_pkg_hdr.file_num = g_regular_file_nr - remove_file_nr; 
-	dedup_pkg_hdr.bdata_offset = DEDUP_PKGHDR_SIZE + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * dedup_pkg_hdr.block_num;
-	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.bdata_offset + g_ldata_offset - remove_bytes_nr;
+	dedup_pkg_hdr.ldata_offset = DEDUP_PKGHDR_SIZE + g_ldata_offset -remove_bytes_nr;
+	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.ldata_offset + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * dedup_pkg_hdr.block_num;
 
 	/* write package header back */
-	ftruncate(fd_pkg, 0);
-	lseek(fd_pkg, 0, SEEK_SET);
-	write(fd_pkg, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
+	lseek(fd_bdata, 0, SEEK_SET);
+	write(fd_bdata, &dedup_pkg_hdr, DEDUP_PKGHDR_SIZE);
+	lseek(fd_bdata, 0 , SEEK_END);
 
 	/* write ldata back */
 	lseek(fd_ldata, 0, SEEK_SET);
 	while(rwsize = read(fd_ldata, buf, 1024 * 1024))
 	{
-		write(fd_pkg, buf, rwsize);
-		memset(buf, 0, 1024 * 1024);
-	}
-
-	/* write bdata back*/
-	lseek(fd_bdata, 0, SEEK_SET);
-	while(rwsize = read(fd_bdata, buf, 1024 * 1024))
-	{
-		write(fd_pkg, buf, rwsize);
+		write(fd_bdata, buf, rwsize);
 		memset(buf, 0, 1024 * 1024);
 	}
 
@@ -1386,7 +1373,7 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	lseek(fd_mdata, 0, SEEK_SET);
 	while(rwsize = read(fd_mdata, buf, 1024 * 1024))
 	{
-		write(fd_pkg, buf, rwsize);
+		write(fd_bdata, buf, rwsize);
 		memset(buf, 0, 1024 * 1024);
 	}
 
@@ -1471,10 +1458,10 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 	block_num = dedup_entry_hdr.block_num;
 	for(i = 0; i < block_num; ++i)
 	{
-		offset = DEDUP_PKGHDR_SIZE + metadata[i] * DEDUP_LOGIC_BLOCK_ENTRY_SIZE;
+		offset = dedup_pkg_hdr.ldata_offset + metadata[i] * DEDUP_LOGIC_BLOCK_ENTRY_SIZE;
 		lseek(fd, offset, SEEK_SET);
 		read(fd, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
-		offset = dedup_pkg_hdr.bdata_offset + dedup_lblock_entry.block_offset;
+		offset = DEDUP_PKGHDR_SIZE + dedup_lblock_entry.block_offset;
 		lseek(fd, offset, SEEK_SET);
 		rwsize = read(fd, buf, dedup_lblock_entry.block_len);
 		write(fd_dest, buf, rwsize);
@@ -1765,6 +1752,7 @@ int main(int argc, char *argv[])
 	{
 	case DEDUP_CREAT:
 		ret = dedup_package_creat(argc - optind -1 , argv + optind + 1, tmp_file, FALSE, bverbose);
+		rename(bdata_file, tmp_file);
 		break;
 	case DEDUP_EXTRACT:
 		subpath = ((argc - optind) >= 2) ? argv[optind + 1] : NULL;
@@ -1772,9 +1760,11 @@ int main(int argc, char *argv[])
 		break;
 	case DEDUP_APPEND:
 		ret = dedup_package_creat(argc - optind -1 , argv + optind + 1, tmp_file, TRUE, bverbose);
+		rename(bdata_file, tmp_file);
 		break;
 	case DEDUP_REMOVE:
 		ret = dedup_package_remove(tmp_file, argc - optind -1, argv + optind + 1, bverbose);
+		rename(bdata_file, tmp_file);
 		break;
 	case DEDUP_LIST:
 		ret = dedup_package_list(tmp_file, bverbose);

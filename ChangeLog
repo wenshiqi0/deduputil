@@ -1,4 +1,5 @@
 v1.0 - 2010.06.28
+  - refactoring package layout to avoid data copy
   - some fine tuning
 
 v1.0 release - 2010.06.25

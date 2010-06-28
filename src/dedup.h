@@ -63,7 +63,7 @@ typedef struct _dedup_package_header {
 	unsigned int blockid_size;
 	unsigned int magic_num;
 	unsigned int file_num;
-	unsigned long long bdata_offset;
+	unsigned long long ldata_offset;
 	unsigned long long metadata_offset;
 } dedup_package_header;
 #define DEDUP_PKGHDR_SIZE	(sizeof(dedup_package_header))
