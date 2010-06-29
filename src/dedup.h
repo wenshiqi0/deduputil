@@ -105,8 +105,8 @@ enum DEDUP_CHUNK_ALGORITHMS {
 	DEDUP_CHUNK_CDC,
 	DEDUP_CHUNK_SB
 };
-#define CHUNK_CDC_D	8192
-#define CHUNK_CDC_R	0
+#define CHUNK_CDC_D	4096
+#define CHUNK_CDC_R	13
 
 #define DEDUP_ROLLING_HASH	"adler_hash"
 typedef struct _cdc_chunk_hashfunc {

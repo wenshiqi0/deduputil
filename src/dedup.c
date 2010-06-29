@@ -81,6 +81,9 @@ static cdc_chunk_hashfunc CDC_CHUNK_HASHFUNC[] =
 	{"rabin_hash", rabin_hash}
 };
 
+/*
+ * set hash function for cdc chunking, alder_hash as default
+ */
 static int set_cdc_chunk_hashfunc(char *hash_func_name)
 {
 	int i;
@@ -105,16 +108,25 @@ static int set_cdc_chunk_hashfunc(char *hash_func_name)
 	return -1;
 }
 
+/*
+ * check whether item exists in hashtable
+ */
 static inline int hash_exist(hashtable *htable, char *str)
 {
 	return (NULL == hash_value((void *)str, htable)) ? 0 : 1;
 }
 
+/*
+ * insert item into hashtable
+ */
 static inline void hash_checkin(hashtable *htable, char *str)
 {
 	hash_insert((void *)strdup(str), (void *)strdup("1"), htable);
 }
 
+/*
+ * print hex md5 checksum
+ */
 static void show_md5(unsigned char md5_checksum[16])
 {
 	int i;
@@ -124,6 +136,9 @@ static void show_md5(unsigned char md5_checksum[16])
 	}
 }
 
+/*
+ * print dedup package header
+ */
 static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 {
         fprintf(stderr, "block_size = %d\n", dedup_pkg_hdr.block_size);
@@ -135,6 +150,9 @@ static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
 	fprintf(stderr, "metadata_offset = %lld\n", dedup_pkg_hdr.metadata_offset);
 }
 
+/*
+ * clean temporary files after deduped
+ */
 static void dedup_clean()
 {
 	pid_t pid = getpid();
@@ -145,6 +163,9 @@ static void dedup_clean()
 	unlink(mdata_file);
 }
 
+/*
+ * signals process 
+ */
 static void dedup_sigroutine(int signo)
 {
 	switch(signo)
@@ -158,6 +179,9 @@ static void dedup_sigroutine(int signo)
 	}
 }
 
+/*
+ * dedup initialize
+ */
 static void dedup_init()
 {
 	pid_t pid = getpid();
@@ -172,7 +196,9 @@ static void dedup_init()
 	signal(SIGSEGV, dedup_sigroutine);
 }
 
-
+/*
+ * blocks compare bit by bit
+ */
 static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex, unsigned int len)
 {
 	int i, ret = 0;
@@ -235,6 +261,9 @@ _BLOCK_CMP_EXIT:
 	return ret;
 }
 
+/*
+ * transfer unsigned integer into string
+ */
 static int uint_2_str(unsigned int x, char *str)
 {
 	int i = 0;
@@ -258,17 +287,18 @@ static int uint_2_str(unsigned int x, char *str)
 	return xx;
 }
 
+/*
+ * chunking block dedup process: if duplicated, store the block and label it's index. 
+ * 	otherwise, check out the block index.
+ * NOTE: no md5 collsion problem with block comparing, but lose some performace
+ * hashtable entry format: (md5_key, block_id list)
+ * +--------------------------------+
+ * | id num | id1 | id2 | ... | idn |
+ * +--------------------------------+
+ */
 static int dedup_regfile_block_process(char *block_buf, unsigned int block_len, char *md5_checksum, int fd_ldata, 
 	int fd_bdata, unsigned int *pos, unsigned int *block_num, block_id_t **metadata, hashtable *htable)
 {
-	/* check hashtable with hashkey 
-	   NOTE: no md5 collsion problem, but lose some performace 
-	   hashtable entry format: (md5_key, block_id list)
-	   +--------------------------------+
-	   | id num | id1 | id2 | ... | idn |
-	   +--------------------------------+
-	*/
-
 	dedup_logic_block_entry dedup_lblock_entry;
 	unsigned int cbindex;
 	int bflag = 0;
@@ -388,7 +418,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 				hkey = g_cdc_chunk_hashfunc(win_buf);
 
 			/* get a normal chunk */
-			if ((hkey % CHUNK_CDC_D) == CHUNK_CDC_R)
+			if ((hkey % g_block_size) == CHUNK_CDC_R)
 			{
 				memcpy(block_buf + block_sz, buf + head, BLOCK_WIN_SIZE);
 				head += BLOCK_WIN_SIZE;
@@ -407,9 +437,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 			}
 			else 
 			{
-				block_buf[block_sz] = buf[head];
-				head++;
-				block_sz++;
+				block_buf[block_sz++] = buf[head++];
 				/* get an abnormal chunk */
 				if (block_sz >= BLOCK_MAX_SIZE)
 				{
@@ -453,7 +481,7 @@ _FILE_CHUNK_CDC_EXIT:
 }
 
 /*
- * slideing block chunking, performance is a big issue.
+ * slideing block chunking, performance is a big issue due to too many hash lookup.
  */
 static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, unsigned int *block_num,
          block_id_t **metadata, hashtable *htable, char *last_block_buf, unsigned int *last_block_len)
@@ -488,13 +516,14 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 			uint_2_str(hkey, crc_checksum);
 			bflag = 0;
 
-			/* this block is duplicate */
+			/* this block maybe is duplicate */
 			if (hash_exist(g_sb_htable_crc, crc_checksum))
 			{	
 				bflag = 2;
 				md5(win_buf, g_block_size, md5_checksum);
 				if (hash_exist(htable, md5_checksum))
 				{
+					/* insert fixed-size block */
 					if (0 != (ret = dedup_regfile_block_process(win_buf, g_block_size, md5_checksum, 
 						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
 					{
@@ -502,6 +531,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 						goto _FILE_CHUNK_SB_EXIT;
 					}
 
+					/* insert fragment */
 					if (slide_sz != 0)
 					{
 						md5(block_buf, slide_sz, md5_checksum);
@@ -557,6 +587,9 @@ _FILE_CHUNK_SB_EXIT:
 	return ret;
 }
 
+/*
+ * fixed-sized file chunking 
+ */
 static int file_chunk_fsp(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, unsigned int *block_num, 
 	block_id_t **metadata, hashtable *htable, char *last_block_buf, unsigned int *last_block_len)
 {
@@ -580,7 +613,8 @@ static int file_chunk_fsp(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 
                 /* calculate md5 */
                 md5(buf, rwsize, md5_checksum);
-		if (0 != (ret = dedup_regfile_block_process(buf, rwsize, md5_checksum, fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+		if (0 != (ret = dedup_regfile_block_process(buf, rwsize, md5_checksum, fd_ldata, 
+			fd_bdata, pos, block_num, metadata, htable)))
 		{
 			perror("dedup_regfile_block_process in file_chunk_fsp");
 			goto _FILE_CHUNK_FSP_EXIT;
@@ -593,8 +627,12 @@ _FILE_CHUNK_FSP_EXIT:
 	if (buf) free(buf);
 	return ret;
 }
- 
-static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
+
+/*
+ * dedup regular file according to chunking algorithms
+ */ 
+static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int fd_mdata, 
+	hashtable *htable, int verbose)
 {
 	int fd, ret = 0;
 	char *last_block_buf = NULL;
@@ -686,6 +724,9 @@ _DEDUP_REGFILE_EXIT:
 	return ret;
 }
 
+/*
+ * dedup whole directory recursively, but only works on regular files
+ */
 static int dedup_dir(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int fd_mdata, hashtable *htable, int verbose)
 {
 	DIR *dp;
@@ -725,7 +766,11 @@ static int dedup_dir(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int
 	return 0;
 }
 
-static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_mdata, dedup_package_header *dedup_pkg_hdr, hashtable *htable)
+/*
+ * preparation for dedup append: rebuild hashtable, metadata and other necessary informations
+ */
+static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_mdata, 
+	dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 {
 	int ret = 0, i;
 	unsigned int rwsize = 0;
@@ -868,6 +913,9 @@ _DEDUP_APPEND_PREPARE_EXIT:
 	return ret;
 }
 
+/*
+ * create a dedup package from source files list
+ */
 static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, int append, int verbose)
 {
 	int fd, fd_ldata, fd_bdata, fd_mdata, ret = 0;
@@ -988,6 +1036,9 @@ _DEDUP_PKG_CREAT_EXIT:
 	return ret;
 }
 
+/*
+ * list files in a dedup package
+ */
 static int dedup_package_list(char *src_file, int verbose)
 {
 	int fd, i, ret = 0;
@@ -1051,6 +1102,9 @@ _DEDUP_PKG_LIST_EXIT:
 	return ret;
 }
 
+/*
+ * give statistical information about a dedup package
+ */
 static int dedup_package_stat(char *src_file, int verbose)
 {
 	int fd, i, j, ret = 0;
@@ -1141,7 +1195,7 @@ static int dedup_package_stat(char *src_file, int verbose)
 	}
 
 	/* traverse logic blocks to get dup_blocks_sz */
-	lseek(fd, DEDUP_PKGHDR_SIZE, SEEK_SET);
+	lseek(fd, dedup_pkg_hdr.ldata_offset, SEEK_SET);
 	for (i = 0; i < dedup_pkg_hdr.block_num; ++i)
 	{
 		if (lblock_array[i] > 1)
@@ -1157,7 +1211,7 @@ static int dedup_package_stat(char *src_file, int verbose)
 	fprintf(stderr, "total size in orginal filesystem: %ld\n", total_files_sz);
 	fprintf(stderr, "total real size of all orginal files: %ld\n", dup_blocks_sz + last_blocks_sz);
 	fprintf(stderr, "total size of dedup package: %ld\n", stat_buf.st_size);
-	fprintf(stderr, "dedup rate = %.2f : 1\n", total_files_sz/1.00/stat_buf.st_size);
+	fprintf(stderr, "dedup rate = %.4f : 1\n", total_files_sz/1.00/stat_buf.st_size);
 
 _DEDUP_PKG_STAT_EXIT:
 	close(fd);
@@ -1165,6 +1219,9 @@ _DEDUP_PKG_STAT_EXIT:
 	return ret;
 }
 
+/*
+ * check wether the file is in file lists
+ */
 static int file_in_lists(char *filepath, int files_nr, char **files_list)
 {
 	int i;
@@ -1178,6 +1235,9 @@ static int file_in_lists(char *filepath, int files_nr, char **files_list)
 	return -1;
 }
 
+/*
+ * remove files from a dedup package, the process is a bit tricky.
+ */
 static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remove, int verbose)
 {
 	int fd_pkg, fd_ldata, fd_bdata, fd_mdata, ret = 0;
@@ -1408,6 +1468,9 @@ _DEDUP_PKG_REMOVE_EXIT:
 	return ret;
 }
 
+/*
+ * create necessary directories and open the target file
+ */
 static int prepare_target_file(char *pathname, char *basepath, int mode)
 {
 	char fullpath[PATH_MAX_LEN] = {0};
@@ -1429,6 +1492,9 @@ static int prepare_target_file(char *pathname, char *basepath, int mode)
 	return fd;
 }
 
+/*
+ * extract file from a dedup package
+ */
 static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_entry_header dedup_entry_hdr, char *dest_dir, int verbose)
 {
 	char pathname[PATH_MAX_LEN] = {0};
@@ -1495,6 +1561,9 @@ _UNDEDUP_REGFILE_EXIT:
 	return ret;
 }
 
+/*
+ * extract all files from a dedup package
+ */
 static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, int verbose)
 {
 	int fd, i, ret = 0;
@@ -1576,6 +1645,9 @@ _DEDUP_PKG_EXTRACT_EXIT:
 	return ret;
 }
 
+/*
+ * give dedup util usage information
+ */
 static void usage()
 {
         fprintf(stderr, "Usage: dedup [OPTION...] [FILE]...\n");
@@ -1609,6 +1681,9 @@ static void usage()
         fprintf(stderr, "Report bugs to <Aigui.Liu@gmail.com>.\n");
 }
 
+/*
+ * give version information
+ */
 static void version()
 {
 	fprintf(stderr, "dedup utility %s\n", DEDUPUTIL_VERSION);
@@ -1803,3 +1878,5 @@ int main(int argc, char *argv[])
 	dedup_clean();
 	return ret;
 }
+
+/* The End. */
