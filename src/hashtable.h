@@ -2,7 +2,6 @@
 #define _HASHTABLE_H
 
 #include <string.h>
-#include "hash.h"
 
 #ifndef __USE_ISOC99
 #define inline

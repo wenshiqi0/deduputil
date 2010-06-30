@@ -1,3 +1,6 @@
+v1.2.0 - 2010.06.30
+  - some fine tuning on v1.2
+
 v1.2 - 2010.06.29
   - fix bug: dedup --stat does not work
   - code review and annotation

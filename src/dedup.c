@@ -172,10 +172,13 @@ static void dedup_sigroutine(int signo)
 	{
 	case SIGQUIT:
 	case SIGILL:
+	case SIGFPE:
 	case SIGABRT:
-	case SIGKILL:
 	case SIGSEGV:
+	case SIGTERM:
+	case SIGINT:
 		dedup_clean();
+		exit(-1);
 	}
 }
 
@@ -191,9 +194,11 @@ static void dedup_init()
 	sprintf(mdata_file, ".mdata_%s_%d\0", FILENAME_MAGIC_NUM, pid);
 	signal(SIGQUIT, dedup_sigroutine);
 	signal(SIGILL, dedup_sigroutine);
+	signal(SIGFPE, dedup_sigroutine);
 	signal(SIGABRT, dedup_sigroutine);
-	signal(SIGKILL, dedup_sigroutine);
 	signal(SIGSEGV, dedup_sigroutine);
+	signal(SIGTERM, dedup_sigroutine);
+	signal(SIGINT, dedup_sigroutine);
 }
 
 /*
@@ -1668,7 +1673,7 @@ static void usage()
 	fprintf(stderr, "  -s, --stat       show information about an archive\n\n");
 	fprintf(stderr, "Other options:\n");
         fprintf(stderr, "  -C, --chunk      chunk algorithms: FSP, CDC, SB, CDC as default\n");
-	fprintf(stderr, "  -f, --hashfunc   set hash function for CDC file chunking, ELF_hash as default\n");
+	fprintf(stderr, "  -f, --hashfunc   set hash function for CDC file chunking, adler_hash as default\n");
 	fprintf(stderr, "                   hash functions list as followed: \n");
 	fprintf(stderr, "                   rabin_hash, RS_hash, JS_hash, PJW_hash, ELF_hash, AP_hash\n");
 	fprintf(stderr, "                   simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash, adler_hash\n");
@@ -1677,6 +1682,7 @@ static void usage()
         fprintf(stderr, "  -H, --hashtable  hashtable backet number, 10240 as default\n");
         fprintf(stderr, "  -d, --directory  change to directory, PWD as default\n");
         fprintf(stderr, "  -v, --verbose    print verbose messages\n");
+        fprintf(stderr, "  -V, --version    display version number\n");
         fprintf(stderr, "  -h, --help       give this help list\n\n");
         fprintf(stderr, "Report bugs to <Aigui.Liu@gmail.com>.\n");
 }
@@ -1687,9 +1693,10 @@ static void usage()
 static void version()
 {
 	fprintf(stderr, "dedup utility %s\n", DEDUPUTIL_VERSION);
-	fprintf(stderr, "Copyright (C) 2010 Aigui Liu\n");
+	fprintf(stderr, "Copyright (C) 2010 Aigui Liu.\n");
 	fprintf(stderr, "This is free software; see the source for copying conditions.  There is NO\n");
-	fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n");
+	fprintf(stderr, "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n");
+	fprintf(stderr, "Written by Aigui Liu.\n");
 }
 
 int main(int argc, char *argv[])
