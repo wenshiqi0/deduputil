@@ -379,6 +379,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 	char buf[BUF_MAX_SIZE] = {0};
 	char block_buf[BLOCK_MAX_SIZE] = {0};
 	char win_buf[BLOCK_WIN_SIZE + 1] = {0};
+	char adler_pre_char;
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned int bpos = 0;
 	unsigned int rwsize = 0;
@@ -416,8 +417,8 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 			 */
 			if (g_rolling_hash)
 			{
-				hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE) || head == 0) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
-					adler32_rolling_checksum(hkey, BLOCK_WIN_SIZE, buf[head-1], buf[head+BLOCK_WIN_SIZE-1]);
+				hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
+					adler32_rolling_checksum(hkey, BLOCK_WIN_SIZE, adler_pre_char, buf[head+BLOCK_WIN_SIZE-1]);
 			} 
 			else 
 				hkey = g_cdc_chunk_hashfunc(win_buf);
@@ -466,11 +467,14 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 				head = ((tail - head) > (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? 
 					head + (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE) : tail;
 			}
+
+			adler_pre_char = buf[head -1];
 		}
 
 		/* read expected data from file to full up buf */
 		bpos = tail - head;
 		exp_rwsize = BUF_MAX_SIZE - bpos;
+		adler_pre_char = buf[head -1];
 		memmove(buf, buf + head, bpos);
 	}
 	/* last chunk */
@@ -494,6 +498,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 	char buf[BUF_MAX_SIZE] = {0};
 	char win_buf[BLOCK_MAX_SIZE + 1] = {0};
 	char block_buf[BLOCK_MAX_SIZE] = {0};
+	char adler_pre_char;
 	unsigned char md5_checksum[16 + 1] = {0};
 	unsigned char crc_checksum[16] = {0};
 	unsigned int bpos = 0;
@@ -516,8 +521,8 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 		while ((head + g_block_size) <= tail)
 		{
 			memcpy(win_buf, buf + head, g_block_size);
-			hkey = (slide_sz == 0 || head == 0) ? adler32_checksum(win_buf, g_block_size) : 
-				adler32_rolling_checksum(hkey, g_block_size, buf[head-1], buf[head+g_block_size-1]);
+			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, g_block_size) : 
+				adler32_rolling_checksum(hkey, g_block_size, adler_pre_char, buf[head+g_block_size-1]);
 			uint_2_str(hkey, crc_checksum);
 			bflag = 0;
 
@@ -572,11 +577,14 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 					slide_sz = 0;
 				}
 			}
+
+			adler_pre_char = buf[head - 1];
 		}
 
 		/* read expected data from file to full up buf */
 		bpos = tail - head;
 		exp_rwsize = BUF_MAX_SIZE - bpos;
+		adler_pre_char = buf[head - 1];
 		memmove(buf, buf + head, bpos);
 	}
 	/* last chunk */
