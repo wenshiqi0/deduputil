@@ -416,7 +416,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 			 */
 			if (g_rolling_hash)
 			{
-				hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE)) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
+				hkey = (block_sz == (BLOCK_MIN_SIZE - BLOCK_WIN_SIZE) || head == 0) ? adler32_checksum(win_buf, BLOCK_WIN_SIZE) :
 					adler32_rolling_checksum(hkey, BLOCK_WIN_SIZE, buf[head-1], buf[head+BLOCK_WIN_SIZE-1]);
 			} 
 			else 
@@ -516,7 +516,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 		while ((head + g_block_size) <= tail)
 		{
 			memcpy(win_buf, buf + head, g_block_size);
-			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, g_block_size) : 
+			hkey = (slide_sz == 0 || head == 0) ? adler32_checksum(win_buf, g_block_size) : 
 				adler32_rolling_checksum(hkey, g_block_size, buf[head-1], buf[head+g_block_size-1]);
 			uint_2_str(hkey, crc_checksum);
 			bflag = 0;
