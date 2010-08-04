@@ -500,6 +500,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 	char block_buf[BLOCK_MAX_SIZE] = {0};
 	char adler_pre_char;
 	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned char md5_checksum1[16 + 1] = {0};
 	unsigned char crc_checksum[16] = {0};
 	unsigned int bpos = 0;
 	unsigned int slide_sz = 0;
@@ -533,6 +534,17 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 				md5(win_buf, g_block_size, md5_checksum);
 				if (hash_exist(htable, md5_checksum))
 				{
+					/* insert fragment */
+					if (slide_sz != 0)
+					{
+						md5(block_buf, slide_sz, md5_checksum1);
+						if (0 != (ret = dedup_regfile_block_process(block_buf, slide_sz, md5_checksum1, 
+							fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
+						{
+							perror("dedup_regfile_block_process in file_chunk_sb");
+							goto _FILE_CHUNK_SB_EXIT;
+						}
+					}
 					/* insert fixed-size block */
 					if (0 != (ret = dedup_regfile_block_process(win_buf, g_block_size, md5_checksum, 
 						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
@@ -541,17 +553,6 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 						goto _FILE_CHUNK_SB_EXIT;
 					}
 
-					/* insert fragment */
-					if (slide_sz != 0)
-					{
-						md5(block_buf, slide_sz, md5_checksum);
-						if (0 != (ret = dedup_regfile_block_process(block_buf, slide_sz, md5_checksum, 
-							fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
-						{
-							perror("dedup_regfile_block_process in file_chunk_sb");
-							goto _FILE_CHUNK_SB_EXIT;
-						}
-					}
 					head += g_block_size;
 					slide_sz = 0;
 					bflag = 1;
