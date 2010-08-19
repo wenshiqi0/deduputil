@@ -29,10 +29,7 @@ int queue_destroy(struct linkqueue *q)
 
 int queue_empty(struct linkqueue *q)
 {
-	if(q->front == q->rear) 
-		return 0;
-	else 
-		return -1;
+	return (q->front == q->rear)? 0 : -1;
 }
 
 int queue_push(struct linkqueue *q, void *e)

@@ -1675,7 +1675,7 @@ static void usage()
         fprintf(stderr, "  dedup -s -v foobar.ded            # Show information about foobar.ded.\n\n");
         fprintf(stderr, "Main options (must only one):\n");
         fprintf(stderr, "  -c, --creat      create a new archive\n");
-        fprintf(stderr, "  -x, --extract    extrace files from an archive\n");
+        fprintf(stderr, "  -x, --extract    extract files from an archive\n");
         fprintf(stderr, "  -a, --append     append files to an archive\n");
         fprintf(stderr, "  -r, --remove     remove files from an archive\n");
         fprintf(stderr, "  -t, --list       list files in an archive\n");
