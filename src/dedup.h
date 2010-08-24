@@ -38,7 +38,7 @@
 extern "C" {
 #endif
 
-#define DEDUPUTIL_VERSION	"1.2.1"
+#define DEDUPUTIL_VERSION	"1.2.2"
 
 /* deduplication block id type */
 typedef unsigned int block_id_t;
@@ -83,6 +83,8 @@ typedef struct _dedup_entry_header {
 	unsigned int last_block_size;
 	unsigned long long old_size;
 	int mode;
+	time_t atime;
+	time_t mtime;
 } dedup_entry_header;
 #define DEDUP_ENTRYHDR_SIZE	(sizeof(dedup_entry_header))
 

@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <fcntl.h>
+#include <utime.h>
 #include <dirent.h>
 #include <errno.h>
 #include "md5.h"
@@ -720,6 +721,8 @@ static int dedup_regfile(char *fullpath, int prepos, int fd_ldata, int fd_bdata,
 	dedup_entry_hdr.entry_size = BLOCK_ID_SIZE;
 	dedup_entry_hdr.last_block_size = last_block_len;
 	dedup_entry_hdr.mode = statbuf.st_mode;
+	dedup_entry_hdr.atime = statbuf.st_atime;
+	dedup_entry_hdr.mtime = statbuf.st_mtime;
 	dedup_entry_hdr.old_size = statbuf.st_blocks * 512;
 
 	write(fd_mdata, &dedup_entry_hdr, sizeof(dedup_entry_header));
@@ -1512,6 +1515,7 @@ static int prepare_target_file(char *pathname, char *basepath, int mode)
 static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_entry_header dedup_entry_hdr, char *dest_dir, int verbose)
 {
 	char pathname[PATH_MAX_LEN] = {0};
+	char fullpath[PATH_MAX_LEN] = {0};
 	block_id_t *metadata = NULL;
 	unsigned int block_num = 0;
 	unsigned int rwsize = 0;
@@ -1520,6 +1524,7 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 	long long offset, i;
 	int fd_dest, ret = 0;
 	dedup_logic_block_entry dedup_lblock_entry;
+	struct utimbuf times;
 
 	metadata = (block_id_t *) malloc(BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 	if (NULL == metadata)
@@ -1567,6 +1572,13 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 	write(fd_dest, last_block_buf, dedup_entry_hdr.last_block_size);
 	close(fd_dest);
 
+	/* timestamps preservation */
+	sprintf(fullpath, "%s/%s", dest_dir, pathname);
+	times.actime = dedup_entry_hdr.atime;
+	times.modtime = dedup_entry_hdr.mtime;
+	utime(fullpath, &times);
+
+
 _UNDEDUP_REGFILE_EXIT:
 	if (metadata) free(metadata);
 	if (buf) free(buf);
@@ -1578,7 +1590,7 @@ _UNDEDUP_REGFILE_EXIT:
 /*
  * extract all files from a dedup package
  */
-static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, int verbose)
+static int dedup_package_extract(char *src_file, int files_nr, char **files_extract, char *dest_dir, int verbose)
 {
 	int fd, i, ret = 0;
 	dedup_package_header dedup_pkg_hdr;
@@ -1626,7 +1638,7 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 		}
 
 		/* extract all files */
-		if (subpath == NULL)
+		if (files_nr == 0)
 		{
 			ret = undedup_regfile(fd, dedup_pkg_hdr, dedup_entry_hdr, dest_dir, verbose);
 			if (ret != 0)
@@ -1638,10 +1650,9 @@ static int dedup_package_extract(char *src_file, char *subpath, char *dest_dir, 
 			memset(pathname, 0, PATH_MAX_LEN);
 			read(fd, pathname, dedup_entry_hdr.path_len);
 			lseek(fd, offset + DEDUP_ENTRYHDR_SIZE, SEEK_SET);
-			if (strcmp(pathname, subpath) == 0)
+			if (file_in_lists(pathname, files_nr, files_extract) == 0)
 			{
 				ret = undedup_regfile(fd, dedup_pkg_hdr, dedup_entry_hdr, dest_dir, verbose);
-				break;
 			}
 		}
 
@@ -1867,8 +1878,7 @@ int main(int argc, char *argv[])
 		rename(bdata_file, tmp_file);
 		break;
 	case DEDUP_EXTRACT:
-		subpath = ((argc - optind) >= 2) ? argv[optind + 1] : NULL;
-		ret = dedup_package_extract(tmp_file, subpath, path, bverbose);
+		ret = dedup_package_extract(tmp_file, argc - optind -1, argv + optind + 1, path, bverbose);
 		break;
 	case DEDUP_APPEND:
 		ret = dedup_package_creat(argc - optind -1 , argv + optind + 1, tmp_file, TRUE, bverbose);

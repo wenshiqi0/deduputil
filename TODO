@@ -1,4 +1,2 @@
- - files wildcards extraction
- - preserve timestamps for original files
  - similar files identify
  - delta deduplication

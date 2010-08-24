@@ -1,3 +1,7 @@
+v1.2.2 - 2010.08.24
+  - add feature: wildcards support for package extraction and removing
+  - add feature: file timestamps preservation
+
 v1.2.1 - 2010.08.04
   - fix bug: file chunking error with sliding block 
 
