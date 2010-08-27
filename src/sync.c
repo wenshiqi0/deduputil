@@ -172,6 +172,22 @@ static int file_chunk_cdc(int fd_src, int fd_chunk, chunk_file_header *chunk_fil
 
 	if (rwsize == -1)
 		return -1;
+	
+	/* process last block */
+	uint32_t last_block_sz = ((rwsize + bpos + block_sz) >= 0) ? rwsize + bpos + block_sz : 0;
+	char last_block_buf[BLOCK_MAX_SZ] = {0};
+	if (last_block_sz > 0) {
+		memcpy(last_block_buf, block_buf, block_sz);
+		memcpy(last_block_buf + block_sz, buf, rwsize + bpos);
+		md5(last_block_buf, last_block_sz, md5_checksum);
+		uint_2_str(adler32_checksum(last_block_buf, last_block_sz), csum);
+		chunk_file_hdr->block_nr++;
+		chunk_bentry.len = last_block_sz;
+		chunk_bentry.offset = offset;
+		memcpy(chunk_bentry.md5, md5_checksum, 16+1);
+		memcpy(chunk_bentry.csum, csum, 10 + 1);
+		write(fd_chunk, &chunk_bentry, CHUNK_BLOCK_ENTRY_SZ);
+	}
 
 	return 0;
 }

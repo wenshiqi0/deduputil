@@ -19,9 +19,9 @@
 
 #include <stdint.h>
 
-#define BLOCK_SZ        2048
-#define BLOCK_MIN_SZ    1024
-#define BLOCK_MAX_SZ    4096
+#define BLOCK_SZ        1024
+#define BLOCK_MIN_SZ    512
+#define BLOCK_MAX_SZ    2048
 #define BLOCK_WIN_SZ    48
 
 #define NAME_MAX_SZ		256

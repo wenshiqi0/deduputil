@@ -1,4 +1,4 @@
-CMDS = dedup bdiff bencode
+CMDS = dedup bdiff bencode bsim
 
 AM_CFLAGS = -g3 -Wall 
 AM_LDFLAGS = -L.
@@ -11,4 +11,6 @@ dedup_LDADD = -lz
 bdiff_SOURCES = bdiff.c md5.c hashtable.c
 
 bencode_SOURCES = bencode.c sync.c md5.c hashtable.c checksum.c
+
+bsim_SOURCES = bsim.c sync.c md5.c hashtable.c checksum.c
 

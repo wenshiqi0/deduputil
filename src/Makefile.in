@@ -40,7 +40,8 @@ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
-am__EXEEXT_1 = dedup$(EXEEXT) bdiff$(EXEEXT) bencode$(EXEEXT)
+am__EXEEXT_1 = dedup$(EXEEXT) bdiff$(EXEEXT) bencode$(EXEEXT) \
+	bsim$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
@@ -51,6 +52,10 @@ am_bencode_OBJECTS = bencode.$(OBJEXT) sync.$(OBJEXT) md5.$(OBJEXT) \
 	hashtable.$(OBJEXT) checksum.$(OBJEXT)
 bencode_OBJECTS = $(am_bencode_OBJECTS)
 bencode_LDADD = $(LDADD)
+am_bsim_OBJECTS = bsim.$(OBJEXT) sync.$(OBJEXT) md5.$(OBJEXT) \
+	hashtable.$(OBJEXT) checksum.$(OBJEXT)
+bsim_OBJECTS = $(am_bsim_OBJECTS)
+bsim_LDADD = $(LDADD)
 am_dedup_OBJECTS = dedup.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT) \
 	hash.$(OBJEXT) rabinhash32.$(OBJEXT) checksum.$(OBJEXT) \
 	libz.$(OBJEXT) queue.$(OBJEXT)
@@ -63,8 +68,10 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(bdiff_SOURCES) $(bencode_SOURCES) $(dedup_SOURCES)
-DIST_SOURCES = $(bdiff_SOURCES) $(bencode_SOURCES) $(dedup_SOURCES)
+SOURCES = $(bdiff_SOURCES) $(bencode_SOURCES) $(bsim_SOURCES) \
+	$(dedup_SOURCES)
+DIST_SOURCES = $(bdiff_SOURCES) $(bencode_SOURCES) $(bsim_SOURCES) \
+	$(dedup_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -154,13 +161,14 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-CMDS = dedup bdiff bencode
+CMDS = dedup bdiff bencode bsim
 AM_CFLAGS = -g3 -Wall 
 AM_LDFLAGS = -L.
 dedup_SOURCES = dedup.c md5.c hashtable.c hash.c rabinhash32.c checksum.c libz.c queue.c
 dedup_LDADD = -lz
 bdiff_SOURCES = bdiff.c md5.c hashtable.c
 bencode_SOURCES = bencode.c sync.c md5.c hashtable.c checksum.c
+bsim_SOURCES = bsim.c sync.c md5.c hashtable.c checksum.c
 all: all-am
 
 .SUFFIXES:
@@ -223,6 +231,9 @@ bdiff$(EXEEXT): $(bdiff_OBJECTS) $(bdiff_DEPENDENCIES)
 bencode$(EXEEXT): $(bencode_OBJECTS) $(bencode_DEPENDENCIES) 
 	@rm -f bencode$(EXEEXT)
 	$(LINK) $(bencode_OBJECTS) $(bencode_LDADD) $(LIBS)
+bsim$(EXEEXT): $(bsim_OBJECTS) $(bsim_DEPENDENCIES) 
+	@rm -f bsim$(EXEEXT)
+	$(LINK) $(bsim_OBJECTS) $(bsim_LDADD) $(LIBS)
 dedup$(EXEEXT): $(dedup_OBJECTS) $(dedup_DEPENDENCIES) 
 	@rm -f dedup$(EXEEXT)
 	$(LINK) $(dedup_OBJECTS) $(dedup_LDADD) $(LIBS)
@@ -235,6 +246,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdiff.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bencode.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bsim.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/checksum.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dedup.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/hash.Po@am__quote@
