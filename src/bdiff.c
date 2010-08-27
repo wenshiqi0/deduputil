@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
+#include "md5.h"
+#include "hashtable.h"
 #include "dedup.h"
 
 /* block length */

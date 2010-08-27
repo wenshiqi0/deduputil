@@ -40,10 +40,17 @@ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
-am__EXEEXT_1 = dedup$(EXEEXT)
+am__EXEEXT_1 = dedup$(EXEEXT) bdiff$(EXEEXT) bencode$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
+am_bdiff_OBJECTS = bdiff.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT)
+bdiff_OBJECTS = $(am_bdiff_OBJECTS)
+bdiff_LDADD = $(LDADD)
+am_bencode_OBJECTS = bencode.$(OBJEXT) sync.$(OBJEXT) md5.$(OBJEXT) \
+	hashtable.$(OBJEXT) checksum.$(OBJEXT)
+bencode_OBJECTS = $(am_bencode_OBJECTS)
+bencode_LDADD = $(LDADD)
 am_dedup_OBJECTS = dedup.$(OBJEXT) md5.$(OBJEXT) hashtable.$(OBJEXT) \
 	hash.$(OBJEXT) rabinhash32.$(OBJEXT) checksum.$(OBJEXT) \
 	libz.$(OBJEXT) queue.$(OBJEXT)
@@ -56,8 +63,8 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(dedup_SOURCES)
-DIST_SOURCES = $(dedup_SOURCES)
+SOURCES = $(bdiff_SOURCES) $(bencode_SOURCES) $(dedup_SOURCES)
+DIST_SOURCES = $(bdiff_SOURCES) $(bencode_SOURCES) $(dedup_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -147,22 +154,13 @@ target_alias =
 top_build_prefix = ../
 top_builddir = ..
 top_srcdir = ..
-
-#CMDS = dedup md5 hashtest zfile bdiff
-CMDS = dedup
+CMDS = dedup bdiff bencode
 AM_CFLAGS = -g3 -Wall 
 AM_LDFLAGS = -L.
-
-#md5_SOURCES = md5.c
-#md5_CFLAGS = -DTEST
-
-#hashtest_SOURCES = hashtest.c hash.c md5.c
-
-#zfile_SOURCES = libz.c
-#zfile_CFLAGS = -DTESTZLIB
-#zfile_LDADD = -lz
 dedup_SOURCES = dedup.c md5.c hashtable.c hash.c rabinhash32.c checksum.c libz.c queue.c
 dedup_LDADD = -lz
+bdiff_SOURCES = bdiff.c md5.c hashtable.c
+bencode_SOURCES = bencode.c sync.c md5.c hashtable.c checksum.c
 all: all-am
 
 .SUFFIXES:
@@ -219,6 +217,12 @@ uninstall-binPROGRAMS:
 
 clean-binPROGRAMS:
 	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
+bdiff$(EXEEXT): $(bdiff_OBJECTS) $(bdiff_DEPENDENCIES) 
+	@rm -f bdiff$(EXEEXT)
+	$(LINK) $(bdiff_OBJECTS) $(bdiff_LDADD) $(LIBS)
+bencode$(EXEEXT): $(bencode_OBJECTS) $(bencode_DEPENDENCIES) 
+	@rm -f bencode$(EXEEXT)
+	$(LINK) $(bencode_OBJECTS) $(bencode_LDADD) $(LIBS)
 dedup$(EXEEXT): $(dedup_OBJECTS) $(dedup_DEPENDENCIES) 
 	@rm -f dedup$(EXEEXT)
 	$(LINK) $(dedup_OBJECTS) $(dedup_LDADD) $(LIBS)
@@ -229,6 +233,8 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+include ./$(DEPDIR)/bdiff.Po
+include ./$(DEPDIR)/bencode.Po
 include ./$(DEPDIR)/checksum.Po
 include ./$(DEPDIR)/dedup.Po
 include ./$(DEPDIR)/hash.Po
@@ -237,6 +243,7 @@ include ./$(DEPDIR)/libz.Po
 include ./$(DEPDIR)/md5.Po
 include ./$(DEPDIR)/queue.Po
 include ./$(DEPDIR)/rabinhash32.Po
+include ./$(DEPDIR)/sync.Po
 
 .c.o:
 	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
@@ -356,6 +363,8 @@ distclean-generic:
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
 	@echo "it deletes files that may require special tools to rebuild."
+clean: clean-am
+
 clean-am: clean-binPROGRAMS clean-generic mostlyclean-am
 
 distclean: distclean-am
@@ -426,11 +435,6 @@ uninstall-am: uninstall-binPROGRAMS
 	mostlyclean-generic pdf pdf-am ps ps-am tags uninstall \
 	uninstall-am uninstall-binPROGRAMS
 
-
-#bdiff_SOURCES = bdiff.c md5.c hashtable.c
-
-clean:
-	rm -f $(CMDS) *.o *~
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
