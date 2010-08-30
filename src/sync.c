@@ -57,19 +57,17 @@ static int file_chunk_fsp(int fd_src, int fd_chunk, chunk_file_header *chunk_fil
 
 
 	while (rwsize = read(fd_src, buf, BLOCK_SZ)) {
-		if (rwsize != BLOCK_SZ)
-			break;
-
 		md5(buf, rwsize, md5_checksum);
 		uint_2_str(adler32_checksum(buf, rwsize), csum);
-		chunk_bentry.len = BLOCK_SZ;
+		chunk_bentry.len = rwsize;
 		chunk_bentry.offset = offset;
 		memcpy(chunk_bentry.md5, md5_checksum, 16 + 1);
 		memcpy(chunk_bentry.csum, csum, 10 + 1);
 		rwsize = write(fd_chunk, &chunk_bentry, CHUNK_BLOCK_ENTRY_SZ);
 		if (rwsize == -1 || rwsize != CHUNK_BLOCK_ENTRY_SZ)
 			return -1;
-		offset += BLOCK_SZ;
+
+		offset += rwsize;
 		chunk_file_hdr->block_nr++;
 	}
 	if (rwsize == -1)
@@ -186,7 +184,9 @@ static int file_chunk_cdc(int fd_src, int fd_chunk, chunk_file_header *chunk_fil
 		chunk_bentry.offset = offset;
 		memcpy(chunk_bentry.md5, md5_checksum, 16+1);
 		memcpy(chunk_bentry.csum, csum, 10 + 1);
-		write(fd_chunk, &chunk_bentry, CHUNK_BLOCK_ENTRY_SZ);
+		rwsize = write(fd_chunk, &chunk_bentry, CHUNK_BLOCK_ENTRY_SZ);
+		if (rwsize == -1 || rwsize != CHUNK_BLOCK_ENTRY_SZ)
+			return -1;
 	}
 
 	return 0;

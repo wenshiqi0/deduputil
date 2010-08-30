@@ -93,17 +93,14 @@ _CHUNK_FILE_PROCESS_EXIT:
 int hash_callback(void *key, void *data)
 {
 	hash_entry *he = (hash_entry *)data;
-	//sim_union += (he->len * MAX(he->nr1, he->nr2));
-	sim_union += he->len;
-	//sim_intersect += (he->len * MIN(he->nr1, he->nr2));
-	if (he->nr1 && he->nr2)
-		sim_intersect += he->len;
+	sim_union += (he->len * (he->nr1 + he->nr2));
+	sim_intersect += (he->len * MIN(he->nr1, he->nr2));
 }
 
 static float similarity_detect(hashtable *htab)
 {
 	hash_for_each_do(htab, hash_callback);
-	return sim_intersect * 1.0 / sim_union;
+	return sim_intersect * 2.0 / sim_union;
 }
 
 int main(int argc, char *argv[])

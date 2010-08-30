@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	/* parse chunk algorithms */
+	/* parse chunking algorithms */
 	src = argv[1];
 	if (argc >= 3) {
 		chunk_algo = parse_chunk_algo(argv[2]);
