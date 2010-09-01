@@ -1,3 +1,19 @@
+/* Copyright (C) 2010 Aigui Liu
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, visit the http://fsf.org website.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,8 +92,8 @@ static char **alloc_2d_array(int row, int col)
         int i;
         char *p, **pp;
 
-        p = malloc(row * col * sizeof(char));
-        pp = malloc(row * sizeof(char *));
+        p = (char *)malloc(row * col * sizeof(char));
+        pp = (char **)malloc(row * sizeof(char *));
         if (p == NULL || pp == NULL)
                 return NULL;
 
@@ -171,10 +187,10 @@ uint32_t LCS(char** a, int n, char** b, int m, hashtable *htab)
 	hash_entry *he = NULL;
 
 	/* Memory allocation */
-        S = (int **)malloc( (n+1) * sizeof(int) );
-        R = (int **)malloc( (n+1) * sizeof(int) );
+        S = (int **)malloc( (n+1) * sizeof(int *) );
+        R = (int **)malloc( (n+1) * sizeof(int *) );
 	if (S == NULL || R == NULL) {
-		perror("malloc");
+		perror("malloc for S and R in LCS");
 		exit(0);
 	}
 
@@ -182,7 +198,7 @@ uint32_t LCS(char** a, int n, char** b, int m, hashtable *htab)
                 S[ii] = (int*) malloc( (m+1) * sizeof(int) );
                 R[ii] = (int*) malloc( (m+1) * sizeof(int) );
 		if (S[ii] == NULL || R[ii] == NULL) {
-			perror("malloc");
+			perror("malloc for S[ii] and R[ii] in LCS");
 			exit(0);
 		}
         }
@@ -285,7 +301,7 @@ int main(int argc, char *argv[])
 	char *file2 = NULL;
 	lcs_entry le1, le2;
 	char tmpname[NAME_MAX_SZ] = {0};
-	char template[] = "dedup_XXXXXX";
+	char template[] = "deduputil_bsim_XXXXXX";
 	hashtable *htab = NULL;
 	int ret = 0;
 
