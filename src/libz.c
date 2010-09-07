@@ -83,6 +83,10 @@ int def(FILE *source, FILE *dest, int level)
     return Z_OK;
 }
 
+int def_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *len_out, int level)
+{
+}
+
 /* Decompress from file source to file dest until stream ends or EOF.
    inf() returns Z_OK on success, Z_MEM_ERROR if memory could not be
    allocated for processing, Z_DATA_ERROR if the deflate data is
@@ -145,6 +149,10 @@ int inf(FILE *source, FILE *dest)
     /* clean up and return */
     (void)inflateEnd(&strm);
     return ret == Z_STREAM_END ? Z_OK : Z_DATA_ERROR;
+}
+
+int inf_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *len_out)
+{
 }
 
 /* report a zlib or i/o error */

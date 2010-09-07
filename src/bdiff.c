@@ -32,7 +32,7 @@
 static unsigned int g_block_size = BLOCK_SIZE;
 
 /* hashtable backet number */
-static unsigned int g_htab_backet_nr = BACKET_SIZE;
+static unsigned int g_htab_backet_nr = BUCKET_SIZE;
 
 /*
  * output block difference info to file or std.

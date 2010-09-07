@@ -47,7 +47,7 @@ static unsigned long long g_ldata_offset = 0;
 static unsigned int g_block_size = BLOCK_SIZE;
 
 /* hashtable backet number */
-static unsigned int g_htab_backet_nr = BACKET_SIZE;
+static unsigned int g_htab_backet_nr = BUCKET_SIZE;
 
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
@@ -294,7 +294,7 @@ static int uint_2_str(unsigned int x, char *str)
 }
 
 /*
- * chunking block dedup process: if duplicated, store the block and label it's index. 
+ * chunking block dedup process: if not duplicated, store the block and label it's index. 
  * 	otherwise, check out the block index.
  * NOTE: no md5 collsion problem with block comparing, but lose some performace
  * hashtable entry format: (md5_key, block_id list)
