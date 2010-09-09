@@ -85,6 +85,36 @@ int def(FILE *source, FILE *dest, int level)
 
 int def_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *len_out, int level)
 {
+    int ret, flush;
+    unsigned have = 0;
+    z_stream strm;
+
+    /* allocate deflate state */
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    ret = deflateInit(&strm, level);
+    if (ret != Z_OK)
+        return ret;
+
+    /* compress block */
+    strm.avail_in = len_in;
+    strm.next_in = buf_in;
+    flush = Z_FINISH;
+    do {
+       strm.avail_out = *len_out;
+       strm.next_out = buf_out;
+       ret = deflate(&strm, flush);    /* no bad return value */
+       assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+       have += (*len_out - strm.avail_out);
+    } while (strm.avail_out == 0);
+    *len_out = have;
+    assert(strm.avail_in == 0);     /* all input will be used */
+    assert(ret == Z_STREAM_END);        /* stream will be complete */
+
+    /* clean up and return */
+    (void)deflateEnd(&strm);
+    return Z_OK;
 }
 
 /* Decompress from file source to file dest until stream ends or EOF.
@@ -153,6 +183,45 @@ int inf(FILE *source, FILE *dest)
 
 int inf_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *len_out)
 {
+    int ret;
+    unsigned have = 0;
+    z_stream strm;
+
+    /* allocate inflate state */
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    strm.avail_in = 0;
+    strm.next_in = Z_NULL;
+    ret = inflateInit(&strm);
+    if (ret != Z_OK)
+        return ret;
+
+    /* decompress until deflate stream ends */
+    do {
+        do {
+            strm.avail_in = len_in;
+            strm.next_in = buf_in;
+            strm.avail_out = *buf_out;
+            strm.next_out = buf_out;
+            ret = inflate(&strm, Z_NO_FLUSH);
+            assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+            switch (ret) {
+            case Z_NEED_DICT:
+               ret = Z_DATA_ERROR;     /* and fall through */
+            case Z_DATA_ERROR:
+            case Z_MEM_ERROR:
+                (void)inflateEnd(&strm);
+                return ret;
+            }
+            have += (*len_out - strm.avail_out);
+        } while (strm.avail_out == 0);
+    } while (ret != Z_STREAM_END);
+    *len_out = have;
+
+    /* clean up and return */
+    (void)inflateEnd(&strm);
+    return ret == Z_STREAM_END ? Z_OK : Z_DATA_ERROR;
 }
 
 /* report a zlib or i/o error */
@@ -197,6 +266,18 @@ int zlib_compress_file(char *src_file, char *dest_file)
 	return ret;
 }
 
+/* compress from source buf to dest buf */
+int zlib_compress_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *len_out)
+{
+	int ret;
+
+	ret = def_block(buf_in, len_in, buf_out, len_out, Z_DEFAULT_COMPRESSION);
+	if (ret != Z_OK)
+		zerr(ret);
+
+	return ret;
+}
+
 /* decompress from source file to dest file */
 int zlib_decompress_file(char *src_file, char *dest_file)
 {
@@ -210,6 +291,18 @@ int zlib_decompress_file(char *src_file, char *dest_file)
 		zerr(ret);
 	fclose(src);
 	fclose(dest);
+
+	return ret;
+}
+
+/* decompress from source buf to dest buf */
+int zlib_decompress_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *len_out)
+{
+	int ret;
+
+	ret = inf_block(buf_in, len_in, buf_out, len_out);
+	if (ret != Z_OK)
+		zerr(ret);
 
 	return ret;
 }
