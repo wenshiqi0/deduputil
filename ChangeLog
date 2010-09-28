@@ -1,3 +1,6 @@
+v1.3.0 - 2010.09.28
+  - add feature: block level compression 
+
 v1.2.3 - 2010.09.01
   - add cmd bsim: similarity detect between FILE1 and FILE2 based on block level
   - add cmd bencode: encode file into fingerprint lists based on chunks

@@ -38,7 +38,7 @@
 extern "C" {
 #endif
 
-#define DEDUPUTIL_VERSION	"1.2.3"
+#define DEDUPUTIL_VERSION	"1.3.0"
 
 /* deduplication block id type */
 typedef unsigned int block_id_t;
@@ -62,6 +62,7 @@ typedef struct _dedup_package_header {
 	unsigned int block_num;
 	unsigned int blockid_size;
 	unsigned int magic_num;
+	unsigned int compression;
 	unsigned int file_num;
 	unsigned long long ldata_offset;
 	unsigned long long metadata_offset;

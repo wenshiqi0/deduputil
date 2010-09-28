@@ -202,7 +202,7 @@ int inf_block(unsigned char *buf_in, int len_in, unsigned char *buf_out, int *le
         do {
             strm.avail_in = len_in;
             strm.next_in = buf_in;
-            strm.avail_out = *buf_out;
+            strm.avail_out = *len_out;
             strm.next_out = buf_out;
             ret = inflate(&strm, Z_NO_FLUSH);
             assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
