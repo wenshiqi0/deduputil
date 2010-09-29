@@ -150,7 +150,7 @@ static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
         fprintf(stderr, "block_num = %d\n", dedup_pkg_hdr.block_num);
 	fprintf(stderr, "blockid_size = %d\n", dedup_pkg_hdr.blockid_size);
 	fprintf(stderr, "magic_num = 0x%x\n", dedup_pkg_hdr.magic_num);
-	fprintf(stderr, "compression = %d\n", dedup_pkg_hdr.compression);
+	fprintf(stderr, "block_z = %d\n", dedup_pkg_hdr.block_z);
 	fprintf(stderr, "file_num = %d\n", dedup_pkg_hdr.file_num);
 	fprintf(stderr, "ldata_offset = %lld\n", dedup_pkg_hdr.ldata_offset);
 	fprintf(stderr, "metadata_offset = %lld\n", dedup_pkg_hdr.metadata_offset);
@@ -438,6 +438,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 				block_sz += BLOCK_WIN_SIZE;
 				if (block_sz >= BLOCK_MIN_SIZE)
 				{
+					/* compress block is -z flag is given */
 					if (g_bz) 
 					{
 						bzsize = BUF_MAX_SIZE;
@@ -466,6 +467,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 				/* get an abnormal chunk */
 				if (block_sz >= BLOCK_MAX_SIZE)
 				{
+					/* compress block if -z flag is given */
 					if (g_bz)
 					{
 						bzsize = BUF_MAX_SIZE;
@@ -536,7 +538,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 	unsigned char crc_checksum[16] = {0};
 	unsigned int bpos = 0;
 	unsigned int slide_sz = 0;
-	unsigned int rwsize = 0, bzsize = 0, bzsize_f;
+	unsigned int rwsize = 0, bzsize = 0, bzsize_f = 0;
 	unsigned int exp_rwsize = BUF_MAX_SIZE;
 	unsigned int head, tail;
 	unsigned int hkey = 0;
@@ -557,6 +559,11 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 			hkey = (slide_sz == 0) ? adler32_checksum(win_buf, g_block_size) : 
 				adler32_rolling_checksum(hkey, g_block_size, adler_pre_char, buf[head+g_block_size-1]);
 			uint_2_str(hkey, crc_checksum);
+
+			/* bflag: 0, both CRC and MD5 are not idenitical
+			          1, both CRC and MD5 are identical
+				  2, CRC is identical and MD5 is not
+			 */
 			bflag = 0;
 
 			/* this block maybe is duplicate */
@@ -564,6 +571,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 			if (hash_exist(g_sb_htable_crc, crc_checksum))
 			{	
 				bflag = 2;
+				/* compress block if -z flag is given */
 				if (g_bz) 
 				{
 					bzsize = BUF_MAX_SIZE;
@@ -581,6 +589,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 					/* insert fragment */
 					if (slide_sz != 0)
 					{
+						/* compress block if -z flag is given */
 						if (g_bz)
 						{
 							bzsize_f = BUF_MAX_SIZE;
@@ -601,6 +610,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 							goto _FILE_CHUNK_SB_EXIT;
 						}
 					}
+
 					/* insert fixed-size block */
 					if (0 != (ret = dedup_regfile_block_process(win_buf, bzsize, md5_checksum, 
 						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
@@ -618,33 +628,36 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 			/* this block is not duplicate */
 			if (bflag != 1)
 			{
-				block_buf[slide_sz] = buf[head];
-				head++;
-				slide_sz++;
+				block_buf[slide_sz++] = buf[head++];
 				if (slide_sz == g_block_size)
 				{
-					//if (bflag != 2) 
+					bzsize = g_block_size;
+
+					/* calculate checksum and check in */
+					hkey = adler32_checksum(block_buf, bzsize);
+					uint_2_str(hkey, crc_checksum);
+					hash_checkin(g_sb_htable_crc, crc_checksum);
+
+					/* compress block if -z flag is given */
+					if (g_bz)
 					{
-						bzsize = g_block_size;
-						if (g_bz)
+						bzsize = BUF_MAX_SIZE;
+						if (Z_OK != zlib_compress_block(block_buf, g_block_size, buf_bz, &bzsize))
 						{
-							bzsize = BUF_MAX_SIZE;
-							if (Z_OK != zlib_compress_block(block_buf, g_block_size, buf_bz, &bzsize))
-							{
-								ret = -1;
-								goto _FILE_CHUNK_SB_EXIT;
-							}
-							memcpy(block_buf, buf_bz, bzsize);
+							ret = -1;
+							goto _FILE_CHUNK_SB_EXIT;
 						}
-						md5(block_buf, bzsize, md5_checksum);
+						memcpy(block_buf, buf_bz, bzsize);
 					}
+					md5(block_buf, bzsize, md5_checksum);
+					
 					if (0 != (ret = dedup_regfile_block_process(block_buf, bzsize, md5_checksum, 
 						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
 					{
 						perror("dedup_regfile_block_process in file_chunk_sb");
 						goto _FILE_CHUNK_SB_EXIT;
 					}
-					hash_checkin(g_sb_htable_crc, crc_checksum);
+
 					slide_sz = 0;
 				}
 			}
@@ -696,6 +709,7 @@ static int file_chunk_fsp(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
                 if (rwsize != g_block_size)
                         break;
 
+		/* compress block if -z flag is given */
 		if (g_bz) {
 			bzsize = g_block_size * 2;
 			if (Z_OK != zlib_compress_block(buf, rwsize, buf_bz, &bzsize)) {
@@ -869,10 +883,13 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	dedup_package_header *dedup_pkg_hdr, hashtable *htable)
 {
 	int ret = 0, i;
-	unsigned int rwsize = 0;
+	unsigned int rwsize = 0, bzsize = 0;
 	char *buf = NULL;
+	char buf_bz[BUF_MAX_SIZE] = {0};
 	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned char crc_checksum[16] = {0};
 	unsigned int *bindex = NULL;
+	unsigned int hkey = 0;
 	dedup_entry_header dedup_entry_hdr;
 	dedup_logic_block_entry dedup_lblock_entry;
 	unsigned long long offset;
@@ -892,7 +909,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	}
 
 	/* get package header info */
-	g_bz = dedup_pkg_hdr->compression;
+	g_bz = (g_bz) ? g_bz : dedup_pkg_hdr->block_z;
 	g_unique_block_nr = dedup_pkg_hdr->block_num;
 	g_regular_file_nr = dedup_pkg_hdr->file_num;
 	g_block_size = 	dedup_pkg_hdr->block_size;
@@ -963,6 +980,27 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
                 *bindex = (bflag) ? 1 : (*bindex) + 1;
                 *(bindex + *bindex) = i;
                 hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
+
+		/* calculate alder_checksum if g_chunk_algo == DEDUP_CHUNK_SB */
+		if (g_chunk_algo == DEDUP_CHUNK_SB)
+		{
+			/* decompress block if compressed */
+			if (g_bz)
+			{
+				bzsize = BUF_MAX_SIZE;
+				if (Z_OK != zlib_decompress_block(buf, rwsize, buf_bz, &bzsize))
+				{
+					ret = -1;
+					goto _DEDUP_APPEND_PREPARE_EXIT;
+				}
+				memcpy(buf, buf_bz, bzsize);
+				rwsize = bzsize;
+			}
+
+			hkey = adler32_checksum(buf, rwsize);
+			uint_2_str(hkey, crc_checksum);
+			hash_checkin(g_sb_htable_crc, crc_checksum);
+		}
 	}
 	
 	/* get file metadata */
@@ -1098,7 +1136,7 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 	dedup_pkg_hdr.block_num = g_unique_block_nr;
 	dedup_pkg_hdr.blockid_size = BLOCK_ID_SIZE;
 	dedup_pkg_hdr.magic_num = DEDUP_MAGIC_NUM;
-	dedup_pkg_hdr.compression = (g_bz) ? TRUE : FALSE;
+	dedup_pkg_hdr.block_z = (g_bz) ? TRUE : FALSE;
 	dedup_pkg_hdr.file_num = g_regular_file_nr; 
 	dedup_pkg_hdr.ldata_offset = DEDUP_PKGHDR_SIZE + g_ldata_offset;
 	dedup_pkg_hdr.metadata_offset = dedup_pkg_hdr.ldata_offset + DEDUP_LOGIC_BLOCK_ENTRY_SIZE * g_unique_block_nr;
@@ -1648,7 +1686,8 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 		offset = DEDUP_PKGHDR_SIZE + dedup_lblock_entry.block_offset;
 		lseek(fd, offset, SEEK_SET);
 		rwsize = read(fd, buf, dedup_lblock_entry.block_len);
-		if (g_bz || dedup_pkg_hdr.compression == TRUE) {
+		/* decompress block if compressed */
+		if (g_bz || dedup_pkg_hdr.block_z == TRUE) {
 			bzsize = BUF_MAX_SIZE;
 			if (Z_OK != zlib_decompress_block(buf, rwsize, buf_bz, &bzsize)) {
 				ret = -1;
@@ -1817,7 +1856,6 @@ int main(int argc, char *argv[])
 	int dedup_op = -1, dedup_op_nr = 0;
 	int args_nr = 0;
 	char path[PATH_MAX_LEN] = ".\0";
-	char *subpath = NULL;
 
 	struct option longopts[] =
 	{

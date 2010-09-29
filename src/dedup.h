@@ -62,7 +62,7 @@ typedef struct _dedup_package_header {
 	unsigned int block_num;
 	unsigned int blockid_size;
 	unsigned int magic_num;
-	unsigned int compression;
+	unsigned int block_z;
 	unsigned int file_num;
 	unsigned long long ldata_offset;
 	unsigned long long metadata_offset;
