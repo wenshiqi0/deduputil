@@ -1823,6 +1823,9 @@ static void usage()
 	fprintf(stderr, "  -s, --stat       show information about an archive\n\n");
 	fprintf(stderr, "Other options:\n");
         fprintf(stderr, "  -C, --chunk      chunk algorithms: FSP, CDC, SB, CDC as default\n");
+	fprintf(stderr, "                   FSP - fixed-size partition\n");
+	fprintf(stderr, "                   CDC - content-defined chunking\n");
+	fprintf(stderr, "                   SB - sliding block\n");
 	fprintf(stderr, "  -f, --hashfunc   set hash function for CDC file chunking, adler_hash as default\n");
 	fprintf(stderr, "                   hash functions list as followed: \n");
 	fprintf(stderr, "                   rabin_hash, RS_hash, JS_hash, PJW_hash, ELF_hash, AP_hash\n");

@@ -1,1 +1,2 @@
  - delta deduplication
+ - file system with FUSE
