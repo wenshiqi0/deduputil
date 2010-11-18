@@ -47,8 +47,8 @@ static unsigned long long g_ldata_offset = 0;
 /* block length */
 static unsigned int g_block_size = BLOCK_SIZE;
 
-/* hashtable backet number */
-static unsigned int g_htab_backet_nr = BUCKET_SIZE;
+/* hashtable bucket number */
+static unsigned int g_htab_bucket_nr = BUCKET_SIZE;
 
 /* hashtable for pathnames */
 static hashtable *g_htable = NULL;
@@ -1070,7 +1070,7 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 		goto _DEDUP_PKG_CREAT_EXIT;
 	}
 
-	htable = create_hashtable(g_htab_backet_nr);
+	htable = create_hashtable(g_htab_bucket_nr);
 	if (NULL == htable)
 	{
 		perror("create_hashtable in dedup_package_creat");
@@ -1832,7 +1832,7 @@ static void usage()
 	fprintf(stderr, "                   simple_hash, BKDR_hash, JDBM_hash, DJB_hash, CRC_hash, adler_hash\n");
         fprintf(stderr, "  -z, --compress   filter the archive through zlib compression\n");
         fprintf(stderr, "  -b, --block      block size for deduplication, 4096 as default\n");
-        fprintf(stderr, "  -H, --hashtable  hashtable backet number, 10240 as default\n");
+        fprintf(stderr, "  -H, --hashtable  hashtable bucket number, 10240 as default\n");
         fprintf(stderr, "  -d, --directory  change to directory, PWD as default\n");
         fprintf(stderr, "  -v, --verbose    print verbose messages\n");
         fprintf(stderr, "  -V, --version    display version number\n");
@@ -1927,7 +1927,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'H':
-			g_htab_backet_nr = atoi(optarg);
+			g_htab_bucket_nr = atoi(optarg);
 			break;
 		case 'd':
 			sprintf(path, "%s", optarg);
@@ -1973,7 +1973,7 @@ int main(int argc, char *argv[])
 
 	dedup_init();
 	/* create global hashtables */
-	g_htable = create_hashtable(g_htab_backet_nr);
+	g_htable = create_hashtable(g_htab_bucket_nr);
 	if (NULL == g_htable)
 	{
 		perror("create_hashtable in main");
@@ -1982,7 +1982,7 @@ int main(int argc, char *argv[])
 
 	if (g_chunk_algo == DEDUP_CHUNK_SB)
 	{
-		g_sb_htable_crc = create_hashtable(g_htab_backet_nr);
+		g_sb_htable_crc = create_hashtable(g_htab_bucket_nr);
 		if (NULL == g_sb_htable_crc)
 		{
 			perror("create_hashtable in main");
