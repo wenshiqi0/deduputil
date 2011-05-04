@@ -31,7 +31,6 @@
 #include "hash.h"
 #include "hashtable.h"
 #include "libz.h"
-#include "queue.h"
 #include "rabinhash32.h"
 #include "dedup.h"
 
