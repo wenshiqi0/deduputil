@@ -1,4 +1,4 @@
-/* Copyright (C) 2010 Aigui Liu
+/* Copyright (C) 2010,2011 Aigui Liu
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,7 +69,7 @@ static enum DEDUP_CHUNK_ALGORITHMS g_chunk_algo = DEDUP_CHUNK_CDC;
 
 /* CDC chunking hash function */
 static unsigned int (*g_cdc_chunk_hashfunc)(char *str) = ELF_hash;
-static unsigned int g_rolling_hash = 1;
+static unsigned int g_rolling_hash = 1; /* default as adler_hash */
 static cdc_chunk_hashfunc CDC_CHUNK_HASHFUNC[] =
 {
 	{"simple_hash", simple_hash},
