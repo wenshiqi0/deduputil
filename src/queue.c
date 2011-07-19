@@ -56,14 +56,46 @@ int queue_pop(struct linkqueue *q, void **e)
 	return 0;
 }
 
+int queue_repush(struct linkqueue *q, void *e)
+{
+	struct qnode *p, *pre;
+
+	if (queue_empty(q) != 0)
+	{
+		pre = q->front;
+		p = pre->next;
+		while(p && q->compare(p->data, e) != 0 )
+		{
+			pre = p;
+			p= p->next;
+		}
+		if (p)
+		{
+			pre->next = p->next;
+			if (q->rear == p) q->rear = pre;
+			free(p->data);
+			free(p);
+		}
+	}
+
+	return queue_push(q, e);
+}
+
 #if TESTQUEUE
+
+int compare(void *e1, void *e2)
+{
+	return strcmp((char*)e1, (char *)e2);
+}
+
 int main(int argc, char *argv[])
 {
 	int i;
 	void *e;
 	struct linkqueue *q = queue_creat();
-	for (i = 0; i < argc; ++i)
-		queue_push(q, (void *)strdup(argv[i]));
+	q->compare = compare;
+	for (i = 1; i < argc; ++i)
+		queue_repush(q, (void *)strdup(argv[i]));
 
 	while(1)
 	{ 
