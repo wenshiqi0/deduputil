@@ -17,34 +17,41 @@
 #ifndef _LIST_H
 #define _LIST_H
 
-#define CacheSize 4194304	/* 4MB */
-#define SwapSize  4096		/* 4KB */
+#include <stdint.h>
 
-struct list_entry {
-	uint64_t file_offset; /* offset in file */
-	uint32_t cache_offset; /* offset in cache */
-}LIST_ENTRY; 
+#define DEFAULT_CACHE_SZ 4194304	/* 4MB */
+#define DEFAULT_SWAP_SZ  4096		/* 4KB */
 
-struct listdb
+typedef struct list_entry {
+	uint8_t  cached;	/* cached or not */
+	uint64_t file_offset;	/* offset in file */
+	uint32_t cache_offset;	/* offset in cache */
+}LIST_ENTRY;
+#define LISTENTRY_SZ  sizeof(LIST_ENTRY) 
+
+typedef struct listdb
 {
 	char *dbname;
-	int fp;
+	int fd;
 	uint8_t unit_size;
 	uint16_t cache_group_nr;
-	uint32_t cache_size;
 	uint16_t swap_size;
+	uint32_t cache_size;
 	LIST_ENTRY *le_array;
 	void *cache;
-	int (*compare)(void *, void *);
 }LISTDB;
+#define LISTDB_SZ  sizeof(LISTDB)
 
-LISTDB *listdb_new(uint8_t unit_size, uint32_t cache_size, uint16_t swap_size,\
-	int (*compare)(void *, void *));
+enum VALUE_OP {
+	VALUE_SET = 0, 
+	VALUE_GET
+};
+
+LISTDB *listdb_new(uint8_t unit_size, uint32_t cache_size, uint16_t swap_size);
 int listdb_open(LISTDB *db, const char *path);
 int listdb_close(LISTDB *db);
-int listdb_set(LISTDB *db, uint64_t offset, void *value);
-int listdb_get(LISTDB *db, uint64_t offset, void *value);
-int listdb_swap(LISTDB *db, uint64_t file_offset, uint32_t cache_offset);
+int listdb_set(LISTDB *db, uint64_t index, void *value);
+int listdb_get(LISTDB *db, uint64_t index, void *value);
 int listdb_unlink(LISTDB *db);
 
 #endif

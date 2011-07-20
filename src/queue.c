@@ -56,7 +56,7 @@ int queue_pop(struct linkqueue *q, void **e)
 	return 0;
 }
 
-int queue_repush(struct linkqueue *q, void *e)
+int queue_lrupush(struct linkqueue *q, void *e)
 {
 	struct qnode *p, *pre;
 

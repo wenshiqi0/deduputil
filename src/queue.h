@@ -23,7 +23,7 @@ int queue_destroy(struct linkqueue *q);
 int queue_empty(struct linkqueue *q);
 int queue_push(struct linkqueue *q, void *e);
 int queue_pop(struct linkqueue *q, void **e);
-int queue_repush(struct linkqueue *q, void *e);
+int queue_lrupush(struct linkqueue *q, void *e);
 
 #ifdef __cplusplus
 }
