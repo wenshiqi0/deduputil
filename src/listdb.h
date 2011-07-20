@@ -21,14 +21,30 @@
 #define SwapSize  4096		/* 4KB */
 
 struct list_entry {
-	uint64_t offset;
-}; 
+	uint64_t file_offset; /* offset in file */
+	uint32_t cache_offset; /* offset in cache */
+}LIST_ENTRY; 
 
-int compare(void *e1, void *e2);
-int list_open();
-int list_close();
-int list_set();
-int list_get();
-int list_swap();
+struct listdb
+{
+	char *dbname;
+	int fp;
+	uint8_t unit_size;
+	uint16_t cache_group_nr;
+	uint32_t cache_size;
+	uint16_t swap_size;
+	LIST_ENTRY *le_array;
+	void *cache;
+	int (*compare)(void *, void *);
+}LISTDB;
+
+LISTDB *listdb_new(uint8_t unit_size, uint32_t cache_size, uint16_t swap_size,\
+	int (*compare)(void *, void *));
+int listdb_open(LISTDB *db, const char *path);
+int listdb_close(LISTDB *db);
+int listdb_set(LISTDB *db, uint64_t offset, void *value);
+int listdb_get(LISTDB *db, uint64_t offset, void *value);
+int listdb_swap(LISTDB *db, uint64_t file_offset, uint32_t cache_offset);
+int listdb_unlink(LISTDB *db);
 
 #endif
