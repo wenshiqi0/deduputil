@@ -92,8 +92,10 @@ int listdb_close(LISTDB *db)
 	if (db->le_array && db->cache) {
 		for (i = 0; i < db->cache_group_nr; i++) {
 			if (db->le_array[i].cached) {
-				lseek(db->fd, db->le_array[i].file_offset, SEEK_SET);
-				write(db->fd, db->cache+db->le_array[i].cache_offset, db->swap_size);
+				if (-1 == lseek(db->fd, db->le_array[i].file_offset, SEEK_SET))
+					return -1;
+				if (write(db->fd, db->cache+db->le_array[i].cache_offset, db->swap_size) != db->swap_size)
+					return -1;
 			}
 		}
 	}
@@ -113,12 +115,14 @@ int listdb_swapin(LISTDB *db, uint16_t pos, uint64_t file_offset)
 	if (!db || !db->fd || !db->cache || !db->le_array || db->le_array[pos].cached) 
 		return -1;
 
-	db->le_array[pos].cached = 1;
 	db->le_array[pos].file_offset = file_offset;
 	db->le_array[pos].cache_offset = pos * db->swap_size;
-	memset(db->cache+db->le_array[pos].cache_offset, 0, db->swap_size);
-	lseek(db->fd, file_offset, SEEK_SET);
-	read(db->fd, db->cache+db->le_array[pos].cache_offset, db->swap_size);
+	memset(db->cache+db->le_array[pos].cache_offset, '\n', db->swap_size);
+	if (-1 == lseek(db->fd, file_offset, SEEK_SET))
+		return -1;
+	if (-1 == read(db->fd, db->cache+db->le_array[pos].cache_offset, db->swap_size))
+		return -1;
+	db->le_array[pos].cached = 1;
 
 	return 0;
 }
@@ -128,8 +132,10 @@ int listdb_swapout(LISTDB *db, uint16_t pos)
 	if (!db || !db->fd || !db->cache || !db->le_array || !db->le_array[pos].cached)
 		return -1;
 
-	lseek(db->fd, db->le_array[pos].file_offset, SEEK_SET);
-	write(db->fd, db->cache+db->le_array[pos].cache_offset, db->swap_size);
+	if (-1 == lseek(db->fd, db->le_array[pos].file_offset, SEEK_SET))
+		return -1;
+	if (write(db->fd, db->cache+db->le_array[pos].cache_offset, db->swap_size) != db->swap_size)
+		return -1;
 	db->le_array[pos].cached = 0;
 
 	return 0;
@@ -165,6 +171,9 @@ int listdb_value(LISTDB *db, uint64_t index, void *value, uint8_t op)
 		memcpy(db->cache+db->le_array[pos].cache_offset + cache_offset, value, db->unit_size);
 		break;
 	case VALUE_GET:
+		/* check if the value is set */
+		if (*(char *)(db->cache+db->le_array[pos].cache_offset + cache_offset) == '\n')
+			return -2;
 		memcpy(value, db->cache+db->le_array[pos].cache_offset + cache_offset, db->unit_size);
 		break;
 	}
@@ -199,7 +208,7 @@ int listdb_unlink(LISTDB *db)
 #ifdef TEST_LISTDB
 int main(int argc, char *argv[])
 {
-	uint32_t i, value;
+	uint32_t i, value, ret;
 	uint32_t max = atol(argv[2]);
 	char *dbname = argv[1];
 	LISTDB *db  = listdb_new(sizeof(uint32_t), DEFAULT_CACHE_SZ, DEFAULT_SWAP_SZ);
@@ -214,6 +223,7 @@ int main(int argc, char *argv[])
 		exit(-2);
 	}
 
+	/* set values */
 	for (i = 0; i < max; i++) {
 		value = i;
 		if (-1 == listdb_set(db, i, &value)) {
@@ -223,12 +233,19 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "set %d value = %d\n", i, value);
 	}
 
-	for (i = 0; i < max; i++) {
-		if (-1 == listdb_get(db, i, &value)) {
+	/* get values */
+	for (i = 0; i <= max; i++) {
+		ret = listdb_get(db, i, &value);
+		switch (ret) {
+		case -2:
+			fprintf(stderr, "the value of #%d is not set\n", i);
+			break;
+		case -1:
 			fprintf(stderr, "listdb_get failed\n");
 			exit(-4);
+		case  0:
+			fprintf(stderr, "get %d value = %d\n", i, value);
 		}
-		fprintf(stderr, "get %d value = %d\n", i, value);
 	}
 
 	listdb_close(db);
