@@ -14,8 +14,8 @@
  * with this program; if not, visit the http://fsf.org website.
  */
 
-#ifndef _LIST_H
-#define _LIST_H
+#ifndef _LISTDB_H
+#define _LISTDB_H
 
 #include <stdint.h>
 
