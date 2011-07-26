@@ -40,18 +40,6 @@ typedef struct hash_entry {
 }HASH_ENTRY;
 #define HASH_ENTRY_SZ sizeof(HASH_ENTRY)
 
-typedef struct hashdb
-{
-	char *dbname;		/* hashdb filename */
-	int fd;			/* hashdb fd */
-	uint64_t tnum;		/* number of total items */
-	uint32_t bnum;		/* number of hash buckets */
-	uint16_t cnum;		/* number of cache items */
-	BLOOM *bloom;		/* bloom filter */
-	HASH_ENTRY *cache;	/* hash item cache */
-}HASHDB;
-#define HASHDB_SZ  sizeof(HASHDB)
-
 typedef struct hashdb_header {
 	uint16_t magic;		/* magic number */
 	uint16_t cnum;		/* number of cache items */
@@ -61,6 +49,18 @@ typedef struct hashdb_header {
 	uint64_t hoff;		/* offset of hash backets */
 	uint64_t voff;		/* offset of hash values */
 }HASHDB_HDR;
+#define HASHDB_HDR_SZ sizeof(HASHDB_HDR)
+#define HASHDB_MAGIC 20091209
+
+typedef struct hashdb
+{
+	char *dbname;		/* hashdb filename */
+	int fd;			/* hashdb fd */
+	HASHDB_HDR header;	/* hashdb header */
+	BLOOM *bloom;		/* bloom filter */
+	HASH_ENTRY *cache;	/* hash item cache */
+}HASHDB;
+#define HASHDB_SZ  sizeof(HASHDB)
 
 HASHDB *hashdb_new(uint64_t tnum, uint32_t bnum, uint16_t cnum);
 int hashdb_open(HASHDB *db, const char *path);

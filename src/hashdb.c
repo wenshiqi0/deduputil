@@ -25,6 +25,16 @@
 
 HASHDB *hashdb_new(uint64_t tnum, uint32_t bnum, uint16_t cnum)
 {
+	HASHDB *db = NULL;
+
+	if (!(db = malloc(HASHDB_SZ)))
+	    return NULL;
+
+	db->header.tnum = tnum;
+	db->header.bnum = bnum;
+	db->header.cnum = cnum;
+
+	return db;
 }
 
 int hashdb_open(HASHDB *db, const char *path)
