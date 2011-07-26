@@ -1,62 +1,39 @@
-/* Copyright (c) 2011 the authors listed at the following URL, and/or
-the authors of referenced articles or incorporated external code:
-http://en.literateprograms.org/Bloom_filter_(C)?action=history&offset=20100923154723
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Retrieved from: http://en.literateprograms.org/Bloom_filter_(C)?oldid=16893
-*/
+/* Copyright (C) 2011 Aigui Liu
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, visit the http://fsf.org website.
+ */
 
 #include <limits.h>
 #include <stdarg.h>
-
 #include "bloom.h"
 
 #define SETBIT(a, n) (a[n/CHAR_BIT] |= (1<<(n%CHAR_BIT)))
 #define GETBIT(a, n) (a[n/CHAR_BIT] & (1<<(n%CHAR_BIT)))
 
-BLOOM *bloom_create(size_t size, size_t nfuncs, ...)
+BLOOM *bloom_create(size_t size)
 {
 	BLOOM *bloom;
-	va_list l;
-	int n;
 	
-	if(!(bloom=malloc(sizeof(BLOOM)))) return NULL;
-	if(!(bloom->a=calloc((size+CHAR_BIT-1)/CHAR_BIT, sizeof(char)))) {
-		free(bloom);
-		return NULL;
-	}
-	if(!(bloom->funcs=(hashfunc_t*)malloc(nfuncs*sizeof(hashfunc_t)))) {
-		free(bloom->a);
-		free(bloom);
+	if(!(bloom = malloc(sizeof(BLOOM)))) {
 		return NULL;
 	}
 
-	va_start(l, nfuncs);
-	for(n=0; n<nfuncs; ++n) {
-		bloom->funcs[n]=va_arg(l, hashfunc_t);
+	if(!(bloom->a = calloc((size + CHAR_BIT-1)/CHAR_BIT, sizeof(char)))) {
+		free(bloom);
+		return NULL;
 	}
-	va_end(l);
-
-	bloom->nfuncs=nfuncs;
-	bloom->asize=size;
+	bloom->asize = size;
 
 	return bloom;
 }
@@ -64,30 +41,37 @@ BLOOM *bloom_create(size_t size, size_t nfuncs, ...)
 int bloom_destroy(BLOOM *bloom)
 {
 	free(bloom->a);
-	free(bloom->funcs);
 	free(bloom);
 
 	return 0;
 }
 
-int bloom_add(BLOOM *bloom, const char *s)
+int bloom_setbit(BLOOM *bloom, ...)
 {
-	size_t n;
+	va_list l;
+	uint32_t pos;
 
-	for(n=0; n<bloom->nfuncs; ++n) {
-		SETBIT(bloom->a, bloom->funcs[n](s)%bloom->asize);
+	va_start(l, bloom);
+	while(pos = va_arg(l, uint32_t)) {
+		SETBIT(bloom->a, pos % bloom->asize);
 	}
+	va_end(l);
 
 	return 0;
 }
 
-int bloom_check(BLOOM *bloom, const char *s)
+int bloom_check(BLOOM *bloom, ...)
 {
-	size_t n;
+	va_list l;
+	uint32_t pos;
 
-	for(n=0; n<bloom->nfuncs; ++n) {
-		if(!(GETBIT(bloom->a, bloom->funcs[n](s)%bloom->asize))) return 0;
+	va_start(l, bloom);
+	while(pos = va_arg(l, uint32_t)) {
+		if(!(GETBIT(bloom->a, pos % bloom->asize))) {
+			return 0;
+		}
 	}
+	va_end(l);
 
 	return 1;
 }

@@ -26,7 +26,7 @@ typedef struct list_entry {
 	uint8_t  cached;	/* cached or not */
 	uint64_t file_offset;	/* offset in file */
 	uint32_t cache_offset;	/* offset in cache */
-}LIST_ENTRY;
+} LIST_ENTRY;
 #define LISTENTRY_SZ  sizeof(LIST_ENTRY) 
 
 typedef struct listdb
@@ -39,7 +39,7 @@ typedef struct listdb
 	uint32_t cache_size;
 	LIST_ENTRY *le_array;
 	void *cache;
-}LISTDB;
+} LISTDB;
 #define LISTDB_SZ  sizeof(LISTDB)
 
 enum VALUE_OP {
