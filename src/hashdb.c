@@ -46,14 +46,15 @@ int hashdb_open(HASHDB *db, const char *path)
 {
 	int f_ok;
 	uint32_t i;
+	ssize_t wsize;
 
-	if (!db) {
+	if (!db || !path) {
 		return -1;
 	}
 
 	f_ok = access(path, F_OK);
 	db->dbname = strdup(path);
-	db->fd = open(path, O_RDWR|O_CREAT);
+	db->fd = open(path, O_RDWR|O_CREAT, 0755);
 	if (-1 == db->fd) {
 		free(db->dbname);
 		return -1;
@@ -61,6 +62,7 @@ int hashdb_open(HASHDB *db, const char *path)
 
 	if (0 == f_ok) {/* existed hashdb */
 		/* FIXME: build hashdb from file */
+		return -1;
 	} else {/* new hashdb */
 		db->header.magic = HASHDB_MAGIC;
 		db->header.boff = HASHDB_HDR_SZ;
@@ -75,17 +77,27 @@ int hashdb_open(HASHDB *db, const char *path)
 		if (!db->bucket) {
 			goto OUT;
 		}
-
 		db->cache = (HASH_ENTRY *)malloc(db->header.cnum * HASH_ENTRY_SZ);
 		if (!db->cache) {
 			goto OUT;
 		}
-		memset(db->bucket, 0, db->header.bnum * HASH_BUCKET_SZ);
-		memset(db->cache, 0, db->header.cnum * HASH_ENTRY_SZ);
 		for (i = 0; i < db->header.bnum; i++)
 			db->bucket[i].off =0;
 		for (i = 0; i < db->header.cnum; i++)
 			db->cache[i].cached = 0;
+
+		/* prealloc space in the file */
+		if (write(db->fd, &db->header, HASHDB_HDR_SZ) != HASHDB_HDR_SZ) {
+			goto OUT;
+		}
+		wsize = db->header.hoff - HASHDB_HDR_SZ;
+		if (write(db->fd, db->bloom->a, wsize) != wsize) {
+			goto OUT;
+		}
+		wsize = db->header.voff - db->header.hoff;
+		if (write(db->fd, db->bucket, wsize) != wsize) {
+			goto OUT;
+		}
 	}
 	return 0;
 
@@ -95,9 +107,15 @@ OUT:
 		unlink(db->dbname);
 		free(db->dbname);
 	}
+
 	if (db->bloom) {
 		bloom_destroy(db->bloom);
 	}
+
+	if (db->bucket) {
+		free(db->bucket);
+	}
+
 	if (db->cache) {
 		free(db->cache);
 	}
@@ -150,8 +168,12 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 	ssize_t rsize;
 
 
-	if (!db || !he->cached) {
+	if (!db) {
 		return -1;
+	}
+
+	if (!he->cached) {
+		return 0;
 	}
 
 	/* find offset and parent of the hash entry */
@@ -378,11 +400,13 @@ int hashdb_get(HASHDB *db, char *key, void *value)
 	}
 
 	pos = hash1 % db->header.cnum;
-	if ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key))) {
+	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key)))) {
 		if (-1 == hashdb_swapout(db, hash1, hash2, &db->cache[pos])) {
 			return -1;
 		}
+	}
 
+	if (!db->cache[pos].cached) {
 		if (0 != (ret = hashdb_swapin(db, key, hash1, hash2, &db->cache[pos]))) {
 			return ret;
 		}

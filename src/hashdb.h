@@ -52,7 +52,7 @@ typedef struct hashdb_header {
 	uint32_t bnum;		/* number of hash buckets */
 	uint64_t tnum;		/* number of total items */
 	uint64_t boff;		/* offset of bloom filter */
-	uint64_t hoff;		/* offset of hash backets */
+	uint64_t hoff;		/* offset of hash buckets */
 	uint64_t voff;		/* offset of hash values */
 } HASHDB_HDR;
 #define HASHDB_HDR_SZ sizeof(HASHDB_HDR)

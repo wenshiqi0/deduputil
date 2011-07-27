@@ -63,7 +63,7 @@ int listdb_open(LISTDB *db, const char *path)
 	}
 		
 	db->dbname = strdup(path);
-	db->fd = open(path, O_RDWR|O_CREAT);
+	db->fd = open(path, O_RDWR|O_CREAT, 0755);
 	if (-1 == db->fd) {
 		free(db->dbname);
 		return -1;
