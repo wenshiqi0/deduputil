@@ -81,16 +81,26 @@ int hashdb_open(HASHDB *db, const char *path)
 		if (!db->cache) {
 			goto OUT;
 		}
-		for (i = 0; i < db->header.bnum; i++)
-			db->bucket[i].off =0;
-		for (i = 0; i < db->header.cnum; i++)
+		for (i = 0; i < db->header.bnum; i++) {
+			db->bucket[i].off = 0;
+		}
+		for (i = 0; i < db->header.cnum; i++) {
 			db->cache[i].cached = 0;
+			db->cache[i].hash = 0;
+			db->cache[i].off = 0;
+			db->cache[i].left = 0;
+			db->cache[i].right = 0;
+		}
 
 		/* prealloc space in the file */
-		if (write(db->fd, &db->header, HASHDB_HDR_SZ) != HASHDB_HDR_SZ) {
+		if (-1 == lseek(db->fd, 0, SEEK_SET)) {
 			goto OUT;
 		}
-		wsize = db->header.hoff - HASHDB_HDR_SZ;
+		wsize = db->header.boff;
+		if (write(db->fd, &db->header, wsize) != wsize) {
+			goto OUT;
+		}
+		wsize = db->header.hoff - db->header.boff;
 		if (write(db->fd, db->bloom->a, wsize) != wsize) {
 			goto OUT;
 		}
@@ -125,7 +135,7 @@ OUT:
 
 int hashdb_close(HASHDB *db)
 {
-	int i;
+	uint32_t i;
 
 	if (!db) {
 		return -1;
@@ -164,22 +174,23 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 	void *hebuf = NULL;
 	char *hkey = NULL;
 	char *hvalue = NULL;
-	HASH_ENTRY *hentry = NULL, parent;
-	ssize_t rsize;
+	HASH_ENTRY *hentry = NULL;
+	HASH_ENTRY parent;
+	ssize_t rwsize;
 
 
 	if (!db) {
 		return -1;
 	}
 
-	if (!he->cached) {
+	if (!he || !he->cached) {
 		return 0;
 	}
 
 	/* find offset and parent of the hash entry */
 	if (he->off == 0) {
 		hebuf_sz = HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ + HASHDB_VALUE_MAX_SZ; 
-		if (NULL == (hebuf = malloc(hebuf_sz))) {
+		if (NULL == (hebuf = (void *)malloc(hebuf_sz))) {
 			return -1;
 		}
 		pos = hash1 % db->header.bnum;
@@ -192,8 +203,8 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 				return -1;
 			}
 			memset(hebuf, 0, hebuf_sz);
-			rsize = read(db->fd, hebuf, hebuf_sz);
-			if (rsize != hebuf_sz) {
+			rwsize = read(db->fd, hebuf, hebuf_sz);
+			if (rwsize != hebuf_sz) {
 				free(hebuf);
 				return -1;
 			}
@@ -201,7 +212,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 			hentry = (HASH_ENTRY *)hebuf;
 			hkey = (char *)(hebuf + HASH_ENTRY_SZ);
 			hvalue = (char *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
-			memcpy(&parent, hentry, HASH_ENTRY_SZ);
+			memcpy(&parent, hebuf, HASH_ENTRY_SZ);
 			if (hentry->hash > hash2) {
 				root = hentry->left;
 				lr = 0;
@@ -209,7 +220,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 				root = hentry->right;
 				lr = 1;
 			} else {
-				cmp = strcmp(hkey, key);
+				cmp = strcmp(hkey, he->key);
 				if (cmp > 0) {
 					root = hentry->left;
 					lr = 0;
@@ -217,9 +228,13 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 					root = hentry->right;
 					lr = 1;
 				} else {
-					/* never happens */
+					/* never happen */
 				}
 			}
+		}
+
+		if (hebuf) {
+			free(hebuf);
 		}
 
 		/* append mode */
@@ -227,37 +242,50 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 		if (!db->bucket[pos].off) {
 			db->bucket[pos].off = he->off;
 		}
+
+		/* make relationship with parent  */
+		if (parent.off) {
+			(lr == 0)? (parent.left = he->off): (parent.right = he->off);
+			if (-1 == lseek(db->fd, parent.off, SEEK_SET)) {
+				return -1;
+			}
+			rwsize = HASH_ENTRY_SZ;
+			if (write(db->fd, &parent, rwsize) != rwsize) {
+				return -1;
+			}
+		}
 	}
+	printf("he->off = %d\n", he->off);
 	
 	/* flush cached hash entry to file */
 	if (-1 == lseek(db->fd, he->off, SEEK_SET)) {
 		return -1;
 	}
-	if (HASH_ENTRY_SZ != write(db->fd, he, HASH_ENTRY_SZ)) {
+	rwsize = HASH_ENTRY_SZ;
+	if (rwsize != write(db->fd, he, rwsize)) {
 		return -1;
 	}
-	memcpy(key, he->key, he->ksize);
+	sprintf(key, "%s", he->key);
 	if (HASHDB_KEY_MAX_SZ != write(db->fd, key, HASHDB_KEY_MAX_SZ)) {
 		return -1;
 	}
-	memcpy(value, he->value, he->vsize);
+	sprintf(value, "%s", he->value);
 	if (HASHDB_VALUE_MAX_SZ != write(db->fd, value, HASHDB_VALUE_MAX_SZ)) {
 		return -1;
 	}
 
-	/* make relationship with parent  */
-	if (parent.off) {
-		(lr == 0)? (parent.left = he->off): (parent.right = he->off);
-		if (-1 == lseek(db->fd, parent.off, SEEK_SET)) {
-			return -1;
-		}
-		if (write(db->fd, &parent, HASH_ENTRY_SZ) != HASH_ENTRY_SZ) {
-			return -1;
-		}
-	}
 	
-	free(he->key);
-	free(he->value);
+	if (he->key) {
+		free(he->key);
+		he->key = NULL;
+	}
+	if (he->value) {
+		free(he->value);
+		he->value = NULL;
+	}
+	he->off = 0;
+	he->left = 0;
+	he->right = 0;
 	he->cached = 0;
 
 	return 0;
@@ -280,15 +308,18 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 
 	/* check if the value is set */
 	if (!bloom_check(db->bloom, hash1, hash2)) {
+		printf("swapin bloom_check = false, %d, %d\n", hash1, hash2);
 		return -2;
 	}
 	
 	hebuf_sz = HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ + HASHDB_VALUE_MAX_SZ; 
-	if (NULL == (hebuf = malloc(hebuf_sz))) {
+	if (NULL == (hebuf = (void *)malloc(hebuf_sz))) {
 		return -1;
 	}
+
 	pos = hash1 % db->header.bnum;
 	root = db->bucket[pos].off;
+	printf("swapin root = %d\n", root);
 	/* search entry with given key and hash in btree */
 	while (root) {
 		if (-1 == lseek(db->fd, root, SEEK_SET)) {
@@ -305,14 +336,16 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 		hentry = (HASH_ENTRY *)hebuf;
 		hkey = (char *)(hebuf + HASH_ENTRY_SZ);
 		hvalue = (char *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
+		printf("swapin: key=%s, value=%s\n", hkey, hvalue);
 		if (hentry->hash > hash2) {
 			root = hentry->left;
 		} else if (hentry->hash < hash2) {
 			root = hentry->right;
 		} else {
 			cmp = strcmp(hkey, key);
+			printf("key cmp: %s, %s\n", hkey, key);
 			if (cmp == 0) { /* find the entry */
-				memcpy(he, hentry, HASH_ENTRY_SZ);
+				memcpy(he, hebuf, HASH_ENTRY_SZ);
 				he->key = strdup(hkey);
 				he->value = strdup(hvalue);
 				he->cached = 1;
@@ -326,20 +359,25 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 		}
 	}
 
-	free(hebuf);
+	if (hebuf) {
+		free(hebuf);
+	}
+	printf("swapin at the end\n");
 	return -2;
 }
 
 int hashdb_set(HASHDB *db, char *key, void *value)
 {
-	int pos, e_ok = -1;
-	uint32_t hash1 = db->hash_func1(key);
-	uint32_t hash2 = db->hash_func2(key);
+	int pos;
+	uint32_t hash1;
+	uint32_t hash2;
 
-	if (!db) {
+	if (!db || !key) {
 		return -1;
 	}
 
+	hash1 = db->hash_func1(key);
+	hash2 = db->hash_func2(key);
 	/* cache swap in/out with set-associative */
 	pos = hash1 % db->header.cnum;
 	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key) != 0))) {
@@ -347,15 +385,15 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 			return -1;
 		}
 
-		if (!bloom_check(db->bloom, hash1, hash2)) {
-			if ( -1 == (e_ok = hashdb_swapin(db, key, hash1, hash2, &db->cache[pos]))) {
+		if (bloom_check(db->bloom, hash1, hash2)) {
+			if ( -1 == hashdb_swapin(db, key, hash1, hash2, &db->cache[pos])) {
 				return -1;
 			}
 		}
 	}
 
 	if ((strlen(key) > HASHDB_KEY_MAX_SZ) || (strlen((char *)value)) > HASHDB_VALUE_MAX_SZ) {
-		return -2;
+		return -1;
 	}
 
 	/* fill up cache hash entry */
@@ -371,13 +409,13 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 	db->cache[pos].vsize = strlen((char *)value);
 	db->cache[pos].tsize = HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ + HASHDB_VALUE_MAX_SZ;
 	db->cache[pos].hash = hash2;
-	if (e_ok != -2) {
+	if (!db->cache[pos].cached) {
 		/* it's a new entry */
 		db->cache[pos].off = 0;
 		db->cache[pos].left = 0;
 		db->cache[pos].right = 0;
-		bloom_setbit(db->bloom, hash1, hash2);	
 	}
+	bloom_setbit(db->bloom, hash1, hash2);	
 	db->cache[pos].cached = 1;
 
 	return 0;
@@ -386,28 +424,33 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 int hashdb_get(HASHDB *db, char *key, void *value)
 {
 	int pos, ret;
-	uint32_t hash1 = db->hash_func1(key);
-	uint32_t hash2 = db->hash_func2(key);
+	uint32_t hash1;
+	uint32_t hash2;
 
-	if (!db) {
+	if (!db || !key) {
 		return -1;
 	}
 
+	hash1 = db->hash_func1(key);
+	hash2 = db->hash_func2(key);
 	/* check if the value is set */
 	if (!bloom_check(db->bloom, hash1, hash2)) {
-		value = NULL;
 		return -2; 
 	}
 
 	pos = hash1 % db->header.cnum;
-	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key)))) {
+	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key) != 0))) {
+		printf("cached, but not, to swapout: key = %s,%s, hash=%d, %d\n", key, db->cache[pos].key, hash2, db->cache[pos].hash);
 		if (-1 == hashdb_swapout(db, hash1, hash2, &db->cache[pos])) {
+			printf("swapout failed\n");
 			return -1;
 		}
 	}
 
 	if (!db->cache[pos].cached) {
+		printf("not cached, to swapin: %d, %d\n", hash1, hash2);
 		if (0 != (ret = hashdb_swapin(db, key, hash1, hash2, &db->cache[pos]))) {
+			printf("swapin failed ret = %d\n", ret);
 			return ret;
 		}
 	}
@@ -433,15 +476,15 @@ int hashdb_unlink(HASHDB *db)
 #ifdef HASHDB_TEST
 uint32_t sax_hash(const char *key)
 {
-	uint32_t h=0;
-	while(*key) h^=(h<<5)+(h>>2)+(unsigned char)*key++;
+	uint32_t h = 0;
+	while(*key) h ^= (h<<5)+(h>>2) + (unsigned char)*key++;
 	return h;
 }
 
 uint32_t sdbm_hash(const char *key)
 {
-	uint32_t h=0;
-	while(*key) h=(unsigned char)*key++ + (h<<6) + (h<<16) - h;
+	uint32_t h = 0;
+	while(*key) h = (unsigned char)*key++ + (h<<6) + (h<<16) - h;
 	return h;
 }
 
@@ -470,27 +513,30 @@ int main(int argc, char *argv[])
 		sprintf(value, "%d", i);
 		if (-1 == hashdb_set(db, key, value)) {
 			fprintf(stderr, "hashdb_set failed\n");
-			exit(-3);
+			goto EXIT;
 		}
 		fprintf(stderr, "set %s value = %s\n", key, value);
 	}
-
+goto EXIT;
 	/* get values */
 	for (i = 0; i <= max; i++) {
 		sprintf(key, "%d", i);
+		memset(value, 0, HASHDB_VALUE_MAX_SZ);
 		ret = hashdb_get(db, key, value);
 		switch (ret) {
 		case -2:
 			fprintf(stderr, "the value of #%s is not set\n", key);
+			goto EXIT;
 			break;
 		case -1:
 			fprintf(stderr, "hashdb_get failed\n");
-			exit(-4);
+			goto EXIT;
 		case  0:
 			fprintf(stderr, "get %s value = %s\n", key, value);
 		}
 	}
 
+EXIT:
 	hashdb_close(db);
 	hashdb_unlink(db);
 	free(db);
