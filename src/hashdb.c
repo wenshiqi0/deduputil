@@ -256,7 +256,6 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 			}
 		}
 	}
-	printf("he->off = %lld\n", he->off);
 	
 	/* flush cached hash entry to file */
 	if (-1 == lseek(db->fd, he->off, SEEK_SET)) {
@@ -307,12 +306,6 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 		return -1;
 	}
 
-	/* check if the value is set */
-	/*if (!bloom_check(db->bloom, hash1, hash2)) {
-		printf("swapin bloom_check = false, %d, %d\n", hash1, hash2);
-		return -2;
-	}*/
-	
 	hebuf_sz = HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ + HASHDB_VALUE_MAX_SZ; 
 	if (NULL == (hebuf = (void *)malloc(hebuf_sz))) {
 		return -1;
@@ -320,7 +313,6 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 
 	pos = hash1 % db->header.bnum;
 	root = db->bucket[pos].off;
-	printf("swapin root = %lld\n", root);
 	/* search entry with given key and hash in btree */
 	while (root) {
 		if (-1 == lseek(db->fd, root, SEEK_SET)) {
@@ -337,14 +329,12 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 		hentry = (HASH_ENTRY *)hebuf;
 		hkey = (char *)(hebuf + HASH_ENTRY_SZ);
 		hvalue = (char *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
-		printf("swapin: key=%s, value=%s\n", hkey, hvalue);
 		if (hentry->hash > hash2) {
 			root = hentry->left;
 		} else if (hentry->hash < hash2) {
 			root = hentry->right;
 		} else {
 			cmp = strcmp(hkey, key);
-			printf("key cmp: %s, %s\n", hkey, key);
 			if (cmp == 0) { /* find the entry */
 				memcpy(he, hebuf, HASH_ENTRY_SZ);
 				he->key = strdup(hkey);
@@ -363,7 +353,6 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 	if (hebuf) {
 		free(hebuf);
 	}
-	printf("swapin at the end\n");
 	return -2;
 }
 
@@ -440,23 +429,18 @@ int hashdb_get(HASHDB *db, char *key, void *value)
 	if (!bloom_check(db->bloom, hash1, hash2)) {
 		return -2; 
 	}
-	printf("hashdb_get bloom_check = true, %d, %d\n", hash1, hash2);
 
 	pos = hash1 % db->header.cnum;
 	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key) != 0))) {
-		printf("cached, but not, to swapout: key = %s,%s, hash=%d, %d\n", key, db->cache[pos].key, hash2, db->cache[pos].hash);
 		he_hash1 = db->hash_func1(db->cache[pos].key);
 		he_hash2 = db->cache[pos].hash;
 		if (-1 == hashdb_swapout(db, he_hash1, he_hash2, &db->cache[pos])) {
-			printf("swapout failed\n");
 			return -1;
 		}
 	}
 
 	if (!db->cache[pos].cached) {
-		printf("not cached, to swapin: %d, %d\n", hash1, hash2);
 		if (0 != (ret = hashdb_swapin(db, key, hash1, hash2, &db->cache[pos]))) {
-			printf("swapin failed ret = %d\n", ret);
 			return ret;
 		}
 	}
@@ -499,10 +483,30 @@ int main(int argc, char *argv[])
 	uint32_t i, ret;
 	char key[HASHDB_KEY_MAX_SZ] = {0};
 	char value[HASHDB_VALUE_MAX_SZ] = {0};
-	uint32_t max = atol(argv[2]);
-	char *dbname = argv[1];
-	HASHDB *db  = hashdb_new(HASHDB_DEFAULT_TNUM, HASHDB_DEFAULT_BNUM, HASHDB_DEFAULT_CNUM, sax_hash, sdbm_hash);
+	char *dbname = NULL;
+	uint32_t max = 0;
+	int verbose = 0;
+	int delete = 0;
+	HASHDB *db  = NULL;
 
+	if (argc < 3) {
+		fprintf(stderr, "usage: %s dbname max_record_num [verbose] [delete]\n", argv[0]);
+		return 0;
+	}
+	if (argc > 3) {
+		if (0 == strcmp(argv[3], "verbose")) {
+			verbose = 1;
+		}
+	}
+	if (argc > 4) {
+		if (0 == strcmp(argv[4], "delete")) {
+			delete = 1;
+		}
+	}
+	dbname = argv[1];
+	max = atol(argv[2]);
+
+	db = hashdb_new(HASHDB_DEFAULT_TNUM, HASHDB_DEFAULT_BNUM, HASHDB_DEFAULT_CNUM, sax_hash, sdbm_hash);
 	if (!db) {
 		fprintf(stderr, "hashdb_new failed!\n");
 		exit(-1);
@@ -521,7 +525,9 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "hashdb_set failed\n");
 			goto EXIT;
 		}
-		fprintf(stderr, "set %s value = %s\n", key, value);
+		if (verbose) {
+			fprintf(stderr, "set %s value = %s\n", key, value);
+		}
 	}
 
 	/* get values */
@@ -533,18 +539,22 @@ int main(int argc, char *argv[])
 		case -2:
 			fprintf(stderr, "the value of #%s is not set\n", key);
 			goto EXIT;
-			break;
 		case -1:
 			fprintf(stderr, "hashdb_get failed\n");
 			goto EXIT;
 		case  0:
-			fprintf(stderr, "get %s value = %s\n", key, value);
+			if (verbose) {
+				fprintf(stderr, "get %s value = %s\n", key, value);
+			}
+			break;
 		}
 	}
 
 EXIT:
 	hashdb_close(db);
-	hashdb_unlink(db);
+	if (delete) {
+		hashdb_unlink(db);
+	}
 	free(db);
 
 }
