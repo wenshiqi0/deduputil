@@ -54,7 +54,7 @@ int hashdb_open(HASHDB *db, const char *path)
 
 	f_ok = access(path, F_OK);
 	db->dbname = strdup(path);
-	db->fd = open(path, O_RDWR|O_CREAT, 0755);
+	db->fd = open(path, O_RDWR|O_CREAT, 0666);
 	if (-1 == db->fd) {
 		free(db->dbname);
 		return -1;
@@ -86,7 +86,6 @@ int hashdb_open(HASHDB *db, const char *path)
 		}
 		for (i = 0; i < db->header.cnum; i++) {
 			db->cache[i].cached = 0;
-			db->cache[i].hash = 0;
 			db->cache[i].off = 0;
 			db->cache[i].left = 0;
 			db->cache[i].right = 0;
@@ -238,7 +237,9 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 		}
 
 		/* append mode */
-		he->off = lseek(db->fd, 0, SEEK_END);
+		if (-1 == (he->off = lseek(db->fd, 0, SEEK_END))) {
+			return -1;
+		}
 		if (!db->bucket[pos].off) {
 			db->bucket[pos].off = he->off;
 		}
@@ -255,7 +256,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 			}
 		}
 	}
-	printf("he->off = %d\n", he->off);
+	printf("he->off = %lld\n", he->off);
 	
 	/* flush cached hash entry to file */
 	if (-1 == lseek(db->fd, he->off, SEEK_SET)) {
@@ -269,7 +270,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 	if (HASHDB_KEY_MAX_SZ != write(db->fd, key, HASHDB_KEY_MAX_SZ)) {
 		return -1;
 	}
-	sprintf(value, "%s", he->value);
+	sprintf(value, "%s", (char *)he->value);
 	if (HASHDB_VALUE_MAX_SZ != write(db->fd, value, HASHDB_VALUE_MAX_SZ)) {
 		return -1;
 	}
@@ -301,16 +302,16 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 	char *hvalue = NULL;
 	HASH_ENTRY *hentry = NULL;
 	ssize_t rsize;
-
-	if (!db || he->cached) {
+ 
+	if (!db || !key || he->cached) {
 		return -1;
 	}
 
 	/* check if the value is set */
-	if (!bloom_check(db->bloom, hash1, hash2)) {
+	/*if (!bloom_check(db->bloom, hash1, hash2)) {
 		printf("swapin bloom_check = false, %d, %d\n", hash1, hash2);
 		return -2;
-	}
+	}*/
 	
 	hebuf_sz = HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ + HASHDB_VALUE_MAX_SZ; 
 	if (NULL == (hebuf = (void *)malloc(hebuf_sz))) {
@@ -319,7 +320,7 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 
 	pos = hash1 % db->header.bnum;
 	root = db->bucket[pos].off;
-	printf("swapin root = %d\n", root);
+	printf("swapin root = %lld\n", root);
 	/* search entry with given key and hash in btree */
 	while (root) {
 		if (-1 == lseek(db->fd, root, SEEK_SET)) {
@@ -369,10 +370,10 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 int hashdb_set(HASHDB *db, char *key, void *value)
 {
 	int pos;
-	uint32_t hash1;
-	uint32_t hash2;
+	uint32_t hash1, hash2;
+	uint32_t he_hash1, he_hash2;
 
-	if (!db || !key) {
+	if (!db || !key || !value) {
 		return -1;
 	}
 
@@ -381,7 +382,9 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 	/* cache swap in/out with set-associative */
 	pos = hash1 % db->header.cnum;
 	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key) != 0))) {
-		if (-1 == hashdb_swapout(db, hash1, hash2, &db->cache[pos])) {
+		he_hash1 = db->hash_func1(db->cache[pos].key);
+		he_hash2 = db->cache[pos].hash;
+		if (-1 == hashdb_swapout(db, he_hash1, he_hash2, &db->cache[pos])) {
 			return -1;
 		}
 
@@ -392,7 +395,7 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 		}
 	}
 
-	if ((strlen(key) > HASHDB_KEY_MAX_SZ) || (strlen((char *)value)) > HASHDB_VALUE_MAX_SZ) {
+	if ((strlen(key) > HASHDB_KEY_MAX_SZ) || (strlen((char *)value) > HASHDB_VALUE_MAX_SZ)) {
 		return -1;
 	}
 
@@ -424,8 +427,8 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 int hashdb_get(HASHDB *db, char *key, void *value)
 {
 	int pos, ret;
-	uint32_t hash1;
-	uint32_t hash2;
+	uint32_t hash1, hash2;
+	uint32_t he_hash1, he_hash2;
 
 	if (!db || !key) {
 		return -1;
@@ -437,11 +440,14 @@ int hashdb_get(HASHDB *db, char *key, void *value)
 	if (!bloom_check(db->bloom, hash1, hash2)) {
 		return -2; 
 	}
+	printf("hashdb_get bloom_check = true, %d, %d\n", hash1, hash2);
 
 	pos = hash1 % db->header.cnum;
 	if ((db->cache[pos].cached) && ((hash2 != db->cache[pos].hash) || (strcmp(key, db->cache[pos].key) != 0))) {
 		printf("cached, but not, to swapout: key = %s,%s, hash=%d, %d\n", key, db->cache[pos].key, hash2, db->cache[pos].hash);
-		if (-1 == hashdb_swapout(db, hash1, hash2, &db->cache[pos])) {
+		he_hash1 = db->hash_func1(db->cache[pos].key);
+		he_hash2 = db->cache[pos].hash;
+		if (-1 == hashdb_swapout(db, he_hash1, he_hash2, &db->cache[pos])) {
 			printf("swapout failed\n");
 			return -1;
 		}
@@ -517,7 +523,7 @@ int main(int argc, char *argv[])
 		}
 		fprintf(stderr, "set %s value = %s\n", key, value);
 	}
-goto EXIT;
+
 	/* get values */
 	for (i = 0; i <= max; i++) {
 		sprintf(key, "%d", i);
