@@ -27,8 +27,8 @@ typedef struct {
 
 BLOOM *bloom_create(size_t size);
 int bloom_destroy(BLOOM *bloom);
-int bloom_setbit(BLOOM *bloom, ...);
-int bloom_check(BLOOM *bloom, ...);
+int bloom_setbit(BLOOM *bloom, int n, ...);
+int bloom_check(BLOOM *bloom, int n, ...);
 
 #endif
 

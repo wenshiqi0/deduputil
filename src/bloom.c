@@ -47,13 +47,15 @@ int bloom_destroy(BLOOM *bloom)
 	return 0;
 }
 
-int bloom_setbit(BLOOM *bloom, ...)
+int bloom_setbit(BLOOM *bloom, int n, ...)
 {
 	va_list l;
 	uint32_t pos;
+	int i;
 
-	va_start(l, bloom);
-	while(pos = va_arg(l, uint32_t)) {
+	va_start(l, n);
+	for (i = 0; i < n; i++) {
+		pos = va_arg(l, uint32_t);
 		SETBIT(bloom->a, pos % bloom->asize);
 	}
 	va_end(l);
@@ -61,13 +63,15 @@ int bloom_setbit(BLOOM *bloom, ...)
 	return 0;
 }
 
-int bloom_check(BLOOM *bloom, ...)
+int bloom_check(BLOOM *bloom, int n, ...)
 {
 	va_list l;
 	uint32_t pos;
+	int i;
 
-	va_start(l, bloom);
-	while(pos = va_arg(l, uint32_t)) {
+	va_start(l, n);
+	for (i = 0; i < n; i++) {
+		pos = va_arg(l, uint32_t);
 		if(!(GETBIT(bloom->a, pos % bloom->asize))) {
 			return 0;
 		}
