@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <limits.h>
@@ -44,6 +45,50 @@ HASHDB *hashdb_new(uint64_t tnum, uint32_t bnum, uint32_t cnum, \
 	db->hash_func2 = hash_func2;
 
 	return db;
+}
+
+int hashdb_readahead(HASHDB *db)
+{
+	uint32_t i, max, pos;
+	char key[HASHDB_KEY_MAX_SZ] = {0};
+	char value[HASHDB_VALUE_MAX_SZ] = {0};
+	HASH_ENTRY he;
+	ssize_t rsize, hesize;
+
+	if (!db || !db->fd || !db->bloom || !db->bucket || !db->cache) {
+		return -1;
+	}
+
+	hesize = HASH_ENTRY_SZ;
+	max = (db->header.cnum < db->header.bnum) ? db->header.cnum : db->header.bnum;
+	for(i = 0; i < max; i++) {
+		if (-1 == lseek(db->fd, db->bucket[i].off, SEEK_SET)) {
+			return -1;
+		}
+
+		rsize = hesize;
+		if (rsize != read(db->fd, &he, rsize)) {
+			return -1;
+		}
+
+		rsize = HASHDB_KEY_MAX_SZ;
+		if (rsize != read(db->fd, key, rsize)) {
+			return -1;
+		}
+
+		rsize = HASHDB_VALUE_MAX_SZ;
+		if (rsize != read(db->fd, value, rsize)) {
+			return -1;
+		}
+
+		pos = db->hash_func1(key) % db->header.cnum;
+		memcpy(&db->cache[pos], &he, hesize);
+		db->cache[pos].key = strdup(key);
+		db->cache[pos].value = strdup(value);
+		db->cache[pos].cached = 1;
+	}
+
+	return 0;
 }
 
 int hashdb_open(HASHDB *db, const char *path)
@@ -119,6 +164,11 @@ int hashdb_open(HASHDB *db, const char *path)
 		if (rwsize != read(db->fd, db->bucket, rwsize)) {
 			goto OUT;
 		}
+
+		if (-1 == hashdb_readahead(db)) {
+			goto OUT;
+		}
+
 	} else {
 		/* prealloc space in the file */
 		if (-1 == lseek(db->fd, 0, SEEK_SET)) {
@@ -544,6 +594,16 @@ uint32_t sdbm_hash(const char *key)
 	return h;
 }
 
+float time_fly(struct timeval tstart, struct timeval tend)
+{
+	float tf;
+
+	tf = (tend.tv_sec - tstart.tv_sec) * 1000000 + (tend.tv_usec - tstart.tv_usec);
+	tf /= 1000000;
+
+	return tf;
+}
+
 int main(int argc, char *argv[])
 {
 	uint32_t i, ret;
@@ -555,6 +615,8 @@ int main(int argc, char *argv[])
 	int delete = 0;
 	int setget = 0;
 	HASHDB *db  = NULL;
+	struct timeval ststart = {0}, stend = {0};
+	struct timeval gtstart= {0}, gtend = {0};
 
 	if (argc < 6) {
 		printf("usage: %s dbname max_record_num [get] [verbose] [delete]\n", argv[0]);
@@ -590,9 +652,10 @@ int main(int argc, char *argv[])
 
 SET_TEST:
 	/* set values */
+	gettimeofday(&ststart, NULL);
 	for (i = 0; i < max; i++) {
-		sprintf(key, "%d\0", i);
-		sprintf(value, "%d\0", i);
+		sprintf(key, "%d", i);
+		sprintf(value, "%d", i);
 		if (-1 == hashdb_set(db, key, value)) {
 			printf("hashdb_set failed\n");
 			goto EXIT;
@@ -601,18 +664,19 @@ SET_TEST:
 			printf("set %s value = %s\n", key, value);
 		}
 	}
+	gettimeofday(&stend, NULL);
 
 GET_TEST:
 	/* get values */
+	gettimeofday(&gtstart, NULL);
 	for (i = 0; i <= max; i++) {
-		memset(key, 0, HASHDB_KEY_MAX_SZ);
 		sprintf(key, "%d", i);
 		memset(value, 0, HASHDB_VALUE_MAX_SZ);
 		ret = hashdb_get(db, key, value);
 		switch (ret) {
 		case -2:
 			printf("the value of #%s is not set\n", key);
-			goto EXIT;
+			break;
 		case -1:
 			printf("hashdb_get failed\n");
 			goto EXIT;
@@ -623,8 +687,11 @@ GET_TEST:
 			break;
 		}
 	}
+	gettimeofday(&gtend, NULL);
 
 EXIT:
+	printf("used time for set records = %f seconds\n", time_fly(ststart, stend));
+	printf("used time for get records = %f seconds\n", time_fly(gtstart, gtend));
 	if (-1 == hashdb_close(db)) {
 		printf("close hashdb error\n");
 	}
@@ -633,5 +700,6 @@ EXIT:
 	}
 	free(db);
 
+	return 0;
 }
 #endif
