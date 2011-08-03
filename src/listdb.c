@@ -134,7 +134,7 @@ int listdb_swapout(LISTDB *db, uint16_t pos)
 
 	if (-1 == lseek(db->fd, db->le_array[pos].file_offset, SEEK_SET))
 		return -1;
-	if (write(db->fd, db->cache+db->le_array[pos].cache_offset, db->swap_size) != db->swap_size)
+	if (db->swap_size != write(db->fd, db->cache+db->le_array[pos].cache_offset, db->swap_size))
 		return -1;
 	db->le_array[pos].cached = 0;
 
@@ -146,6 +146,7 @@ int listdb_value(LISTDB *db, uint64_t index, void *value, uint8_t op)
 	uint8_t pos;
 	uint32_t cache_offset;
 	uint64_t file_offset;
+	int i, notset;
 
 	if (!db || !db->fd || !db->cache || !db->le_array)
 		return -1;
@@ -172,8 +173,14 @@ int listdb_value(LISTDB *db, uint64_t index, void *value, uint8_t op)
 		break;
 	case VALUE_GET:
 		/* check if the value is set */
-		if (*(char *)(db->cache+db->le_array[pos].cache_offset + cache_offset) == '\n')
+		notset = 1;
+		for (i = 0; i < db->unit_size; i++) {
+			if (*((char *)(db->cache+db->le_array[pos].cache_offset + cache_offset + i)) != '\n')
+				notset = 0;
+		}
+		if (notset) {
 			return -2;
+		}
 		memcpy(value, db->cache+db->le_array[pos].cache_offset + cache_offset, db->unit_size);
 		break;
 	}
@@ -239,7 +246,7 @@ int main(int argc, char *argv[])
 		switch (ret) {
 		case -2:
 			fprintf(stderr, "the value of #%d is not set\n", i);
-			break;
+			return 0;
 		case -1:
 			fprintf(stderr, "listdb_get failed\n");
 			exit(-4);

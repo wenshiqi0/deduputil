@@ -1,3 +1,6 @@
+v1.4.0 - 2011.08.03
+  - add feature: big single file support
+
 v1.3.1 - 2011.07.28
   - add hashdb and listdb: be ready to support big file
 

@@ -1,6 +1,6 @@
-CMDS = dedup bdiff bencode bsim
+CMDS = dedup
 
-AM_CFLAGS = -g3 -pg -Wall 
+AM_CFLAGS = -g3 -Wall
 AM_LDFLAGS = -L.
 
 bin_PROGRAMS = $(CMDS)

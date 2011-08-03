@@ -33,6 +33,8 @@
 #include "libz.h"
 #include "rabinhash32.h"
 #include "dedup.h"
+#include "listdb.h"
+#include "hashdb.h"
 
 /* unique block number in package */
 static unsigned int g_unique_block_nr = 0;
@@ -1383,11 +1385,13 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	int remove_block_nr = 0, remove_file_nr = 0, remove_bytes_nr = 0;
 	char buf[1024 * 1024] = {0};
 	char *block_buf = NULL;
-	block_id_t *lookup_table = NULL;
+	LISTDB *lookup_table = NULL;
 	block_id_t *metadata = NULL;
 	block_id_t TOBE_REMOVED;
+	block_id_t value;
 	unsigned long long offset;
 	char pathname[PATH_MAX_LEN] = {0};
+	char listdb_name[PATH_MAX_LEN] = {0};
 
 	/* open files */
 	if (-1 == (fd_pkg = open(file_pkg, O_RDWR | O_CREAT, 0755)))
@@ -1430,15 +1434,31 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	if (verbose) show_pkg_header(dedup_pkg_hdr);
 
 	/* traverse mdata to build lookup_table */
-	lookup_table = (block_id_t *)malloc(BLOCK_ID_SIZE * g_unique_block_nr);
+	lookup_table = listdb_new(BLOCK_ID_SIZE, DEFAULT_CACHE_SZ, DEFAULT_SWAP_SZ);
 	if (lookup_table == NULL)
 	{
 		perror("malloc lookup_table in dedup_package_remove");
 		ret = errno;
 		goto _DEDUP_PKG_REMOVE_EXIT;
 	}
+	sprintf(listdb_name, "/tmp/listdb.%d", getpid());
+	if ( -1 == listdb_open(lookup_table, listdb_name))
+	{
+		perror("listdb_open in dedup_package_remove");
+		ret = errno;
+		goto _DEDUP_PKG_REMOVE_EXIT;
+	}
+
+	value = 0;
 	for (i = 0; i < g_unique_block_nr; i++)
-		lookup_table[i] = 0;
+	{
+		if ( -1 == listdb_set(lookup_table, i, &value))
+		{
+			perror("listdb_set in dedup_package_remove");
+			ret = errno;
+			goto _DEDUP_PKG_REMOVE_EXIT;
+		}
+	}
 
 	offset = dedup_pkg_hdr.metadata_offset;
 	for (i = 0; i < g_regular_file_nr; i++)
@@ -1470,8 +1490,22 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 				goto _DEDUP_PKG_REMOVE_EXIT;
 			}
 			read(fd_pkg, metadata, BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
-			for (j = 0; j < dedup_entry_hdr.block_num; j++)
-				lookup_table[metadata[j]]++;
+			for (j = 0; j < dedup_entry_hdr.block_num; j++) 
+			{
+				if (0 != listdb_get(lookup_table, metadata[j], &value))
+				{
+					perror("listdb_get in dedup_package_remove");
+					ret = errno;
+					goto _DEDUP_PKG_REMOVE_EXIT;
+				}
+				value++;
+				if (-1 == listdb_set(lookup_table, metadata[j], &value))
+				{
+					perror("listdb_set in dedup_package_remove");
+					ret = errno;
+					goto _DEDUP_PKG_REMOVE_EXIT;
+				}
+			}
 			if (metadata) free(metadata);
 		}
 
@@ -1494,15 +1528,33 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 	{
 		lseek(fd_pkg, dedup_pkg_hdr.ldata_offset + i * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET);
 		read(fd_pkg, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
-		if (lookup_table[i] == 0)
+		if (0 != listdb_get(lookup_table, i, &value))
 		{
-			lookup_table[i] = TOBE_REMOVED;
+			perror("listdb_get in dedup_package_remove");
+			ret = errno;
+			goto _DEDUP_PKG_REMOVE_EXIT;
+		}
+		if (value == 0)
+		{
+			value = TOBE_REMOVED;
+			if (-1 == listdb_set(lookup_table, i, &value))
+			{
+				perror("listdb_set in dedup_package_remove");
+				ret = errno;
+				goto _DEDUP_PKG_REMOVE_EXIT;
+			}
 			remove_block_nr++;
 			remove_bytes_nr += dedup_lblock_entry.block_len;
 		}
 		else
 		{
-			lookup_table[i] = i - remove_block_nr;
+			value = i - remove_block_nr;
+			if (-1 == listdb_set(lookup_table, i, &value))
+			{
+				perror("listdb_set in dedup_package_remove");
+				ret = errno;
+				goto _DEDUP_PKG_REMOVE_EXIT;
+			}
 			lseek(fd_pkg, DEDUP_PKGHDR_SIZE + dedup_lblock_entry.block_offset, SEEK_SET);
 			read(fd_pkg, block_buf, dedup_lblock_entry.block_len);
 			dedup_lblock_entry.block_offset -= remove_bytes_nr;
@@ -1541,7 +1593,15 @@ static int dedup_package_remove(char *file_pkg, int files_nr, char **files_remov
 			read(fd_pkg, metadata, BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
 			read(fd_pkg, block_buf, dedup_entry_hdr.last_block_size);
 			for (j = 0; j < dedup_entry_hdr.block_num; j++)
-				metadata[j] = lookup_table[metadata[j]];
+			{
+				if (0 != listdb_get(lookup_table, metadata[j], &value))
+				{
+					perror("listdb_get in dedup_package_remove");
+					ret = errno;
+					goto _DEDUP_PKG_REMOVE_EXIT;
+				}
+				metadata[j] = value;
+			}
 			write(fd_mdata, &dedup_entry_hdr, DEDUP_ENTRYHDR_SIZE);
 			write(fd_mdata, pathname, dedup_entry_hdr.path_len);
 			write(fd_mdata, metadata, BLOCK_ID_SIZE * dedup_entry_hdr.block_num);
@@ -1597,7 +1657,12 @@ _DEDUP_PKG_REMOVE_EXIT:
 	if (fd_ldata) close(fd_ldata);
 	if (fd_bdata) close(fd_bdata);
 	if (fd_mdata) close(fd_mdata);
-	if (lookup_table) free(lookup_table);
+	if (lookup_table)
+	{
+		listdb_close(lookup_table);
+		listdb_unlink(lookup_table);
+		free(lookup_table);
+	}
 	if (block_buf) free(block_buf);
 	
 	return ret;
