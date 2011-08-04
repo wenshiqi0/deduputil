@@ -29,7 +29,7 @@
 #include <zlib.h>
 #include "md5.h"
 #include "hash.h"
-#include "hashtable.h"
+#include "bighashtable.h"
 #include "libz.h"
 #include "rabinhash32.h"
 #include "dedup.h"
@@ -127,7 +127,7 @@ static inline int hash_exist(hashtable *htable, char *str)
  */
 static inline void hash_checkin(hashtable *htable, char *str)
 {
-	hash_insert((void *)strdup(str), (void *)strdup("1"), htable);
+	hash_insert(str, "1", 1, htable);
 }
 
 /*
@@ -220,12 +220,13 @@ static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex,
 	/* read logic block information */
 	if (-1 == lseek(fd_ldata, bindex * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET))
 	{
-		perror("lseek in block_cmp");
+		printf("fd_ldata = %d, bindex = %d\n", fd_ldata, bindex);
+		perror("lseek in block_cmp 1");
 		exit(errno);
 	}
 	if (DEDUP_LOGIC_BLOCK_ENTRY_SIZE != read(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE))
 	{
-		perror("read in block_cmp");
+		perror("read dedup_lblock_entry in block_cmp");
 		exit(errno);
 	}
 	if (dedup_lblock_entry.block_len != len)
@@ -237,7 +238,7 @@ static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex,
 	/* read phsyical block */
 	if (-1 == lseek(fd_bdata, dedup_lblock_entry.block_offset + DEDUP_PKGHDR_SIZE, SEEK_SET))
 	{
-		perror("lseek in block_cmp");
+		perror("lseek in block_cmp 2");
 		exit(errno);
 	}
 	block_buf = (char *)malloc(len);
@@ -248,7 +249,7 @@ static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex,
 	}
 	if (len != read(fd_bdata, block_buf, len))
 	{
-		perror("read in block_cmp");
+		perror("read block_buf in block_cmp");
 		exit(errno);
 	}
 
@@ -350,7 +351,8 @@ static int dedup_regfile_block_process(char *block_buf, unsigned int block_len, 
 		cbindex = g_unique_block_nr;
 		dedup_lblock_entry.block_offset = g_ldata_offset;
 		dedup_lblock_entry.block_len = block_len;
-		hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
+		hash_insert(md5_checksum, (void *)bindex, (((*bindex) + 1) * BLOCK_ID_SIZE), htable);
+		if (bindex) free(bindex);
 		write(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE);
 		write(fd_bdata, block_buf, block_len);
 		g_unique_block_nr++;
@@ -980,7 +982,8 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 
                 *bindex = (bflag) ? 1 : (*bindex) + 1;
                 *(bindex + *bindex) = i;
-                hash_insert((void *)strdup(md5_checksum), (void *)bindex, htable);
+                hash_insert(md5_checksum, (void *)bindex, (((*bindex) + 1) * BLOCK_ID_SIZE), htable);
+		if (bindex) free(bindex);
 
 		/* calculate alder_checksum if g_chunk_algo == DEDUP_CHUNK_SB */
 		if (g_chunk_algo == DEDUP_CHUNK_SB)
@@ -1169,6 +1172,7 @@ _DEDUP_PKG_CREAT_EXIT:
 	close(fd_ldata);
 	close(fd_bdata);
 	close(fd_mdata);
+	if (htable) hash_free(htable);
 	
 	return ret;
 }

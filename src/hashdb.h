@@ -19,10 +19,9 @@
 
 #include <stdint.h>
 #include "bloom.h"
-#include "hashtable.h"
 
-#define HASHDB_KEY_MAX_SZ	32
-#define HASHDB_VALUE_MAX_SZ	64
+#define HASHDB_KEY_MAX_SZ	512
+#define HASHDB_VALUE_MAX_SZ	4096
 #define HASHDB_DEFAULT_TNUM	10000000
 #define HASHDB_DEFAULT_BNUM	10000000
 #define HASHDB_DEFAULT_CNUM	10000000
@@ -76,8 +75,8 @@ HASHDB *hashdb_new(uint64_t tnum, uint32_t bnum, uint32_t cnum, \
 	hashfunc_t hash_func1, hashfunc_t hash_func2);
 int hashdb_open(HASHDB *db, const char *path);
 int hashdb_close(HASHDB *db);
-int hashdb_set(HASHDB *db, char *key, void *value);
-int hashdb_get(HASHDB *db, char *key, void *value);
+int hashdb_set(HASHDB *db, char *key, void *value, int vsize);
+int hashdb_get(HASHDB *db, char *key, void *value, int *vsize);
 int hashdb_unlink(HASHDB *db);
 
 #endif

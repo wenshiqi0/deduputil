@@ -84,7 +84,10 @@ int hashdb_readahead(HASHDB *db)
 		pos = db->hash_func1(key) % db->header.cnum;
 		memcpy(&db->cache[pos], &he, hesize);
 		db->cache[pos].key = strdup(key);
-		db->cache[pos].value = strdup(value);
+		if (NULL == (db->cache[pos].value = malloc(he.vsize))) {
+			return -1;
+		}
+		memcpy(db->cache[pos].value, value, he.vsize);
 		db->cache[pos].cached = 1;
 	}
 
@@ -289,7 +292,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 	int cmp, hebuf_sz, lr = 0;
 	void *hebuf = NULL;
 	char *hkey = NULL;
-	char *hvalue = NULL;
+	void *hvalue = NULL;
 	HASH_ENTRY *hentry = NULL;
 	HASH_ENTRY parent;
 	ssize_t rwsize;
@@ -327,7 +330,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 
 			hentry = (HASH_ENTRY *)hebuf;
 			hkey = (char *)(hebuf + HASH_ENTRY_SZ);
-			hvalue = (char *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
+			hvalue = (void *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
 			memcpy(&parent, hebuf, HASH_ENTRY_SZ);
 			if (hentry->hash > hash2) {
 				root = hentry->left;
@@ -386,7 +389,7 @@ int hashdb_swapout(HASHDB *db, uint32_t hash1, uint32_t hash2, HASH_ENTRY *he)
 	if (HASHDB_KEY_MAX_SZ != write(db->fd, key, HASHDB_KEY_MAX_SZ)) {
 		return -1;
 	}
-	sprintf(value, "%s", (char *)he->value);
+	memcpy(value, he->value, he->vsize);
 	if (HASHDB_VALUE_MAX_SZ != write(db->fd, value, HASHDB_VALUE_MAX_SZ)) {
 		return -1;
 	}
@@ -414,7 +417,7 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 	int cmp, hebuf_sz;
 	void *hebuf = NULL;
 	char *hkey = NULL;
-	char *hvalue = NULL;
+	void *hvalue = NULL;
 	HASH_ENTRY *hentry = NULL;
 	ssize_t rsize;
  
@@ -444,7 +447,7 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 
 		hentry = (HASH_ENTRY *)hebuf;
 		hkey = (char *)(hebuf + HASH_ENTRY_SZ);
-		hvalue = (char *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
+		hvalue = (void *)(hebuf + HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ);
 		if (hentry->hash > hash2) {
 			root = hentry->left;
 		} else if (hentry->hash < hash2) {
@@ -454,7 +457,10 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 			if (cmp == 0) { /* find the entry */
 				memcpy(he, hebuf, HASH_ENTRY_SZ);
 				he->key = strdup(hkey);
-				he->value = strdup(hvalue);
+				if (NULL == (he->value = malloc(he->vsize))) {
+					return -1;
+				}
+				memcpy(he->value, hvalue, he->vsize);
 				he->cached = 1;
 				free(hebuf);
 				return 0;
@@ -472,7 +478,7 @@ int hashdb_swapin(HASHDB *db, char *key, uint32_t hash1, uint32_t hash2, HASH_EN
 	return -2;
 }
 
-int hashdb_set(HASHDB *db, char *key, void *value)
+int hashdb_set(HASHDB *db, char *key, void *value, int vsize)
 {
 	int pos;
 	uint32_t hash1, hash2;
@@ -500,7 +506,7 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 		}
 	}
 
-	if ((strlen(key) > HASHDB_KEY_MAX_SZ) || (strlen((char *)value) > HASHDB_VALUE_MAX_SZ)) {
+	if ((strlen(key) > HASHDB_KEY_MAX_SZ) || (vsize > HASHDB_VALUE_MAX_SZ)) {
 		return -1;
 	}
 
@@ -512,9 +518,12 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 		free(db->cache[pos].value);
 	}
 	db->cache[pos].key = strdup(key);
-	db->cache[pos].value = strdup(value);
 	db->cache[pos].ksize = strlen(key); 
-	db->cache[pos].vsize = strlen((char *)value);
+	if (NULL == (db->cache[pos].value = malloc(vsize))) {
+		return -1;
+	}
+	memcpy(db->cache[pos].value, value, vsize);
+	db->cache[pos].vsize = vsize;
 	db->cache[pos].tsize = HASH_ENTRY_SZ + HASHDB_KEY_MAX_SZ + HASHDB_VALUE_MAX_SZ;
 	db->cache[pos].hash = hash2;
 	if (!db->cache[pos].cached) {
@@ -529,7 +538,7 @@ int hashdb_set(HASHDB *db, char *key, void *value)
 	return 0;
 }
 
-int hashdb_get(HASHDB *db, char *key, void *value)
+int hashdb_get(HASHDB *db, char *key, void *value, int *vsize)
 {
 	int pos, ret;
 	uint32_t hash1, hash2;
@@ -561,6 +570,7 @@ int hashdb_get(HASHDB *db, char *key, void *value)
 		}
 	}
 	memcpy(value, db->cache[pos].value, db->cache[pos].vsize);
+	*vsize = db->cache[pos].vsize;
 
 	return 0;
 }
@@ -606,7 +616,7 @@ float time_fly(struct timeval tstart, struct timeval tend)
 
 int main(int argc, char *argv[])
 {
-	uint32_t i, ret;
+	uint32_t i, ret, vsize;
 	char key[HASHDB_KEY_MAX_SZ] = {0};
 	char value[HASHDB_VALUE_MAX_SZ] = {0};
 	char *dbname = NULL;
@@ -656,7 +666,7 @@ SET_TEST:
 	for (i = 0; i < max; i++) {
 		sprintf(key, "%d", i);
 		sprintf(value, "%d", i);
-		if (-1 == hashdb_set(db, key, value)) {
+		if (-1 == hashdb_set(db, key, value, strlen(value))) {
 			printf("hashdb_set failed\n");
 			goto EXIT;
 		}
@@ -672,7 +682,7 @@ GET_TEST:
 	for (i = 0; i <= max; i++) {
 		sprintf(key, "%d", i);
 		memset(value, 0, HASHDB_VALUE_MAX_SZ);
-		ret = hashdb_get(db, key, value);
+		ret = hashdb_get(db, key, value, &vsize);
 		switch (ret) {
 		case -2:
 			printf("the value of #%s is not set\n", key);
