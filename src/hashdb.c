@@ -214,7 +214,7 @@ OUT:
 	return -1;
 }
 
-int hashdb_close(HASHDB *db)
+int hashdb_close(HASHDB *db, int flash)
 {
 	uint64_t i;
 	uint32_t hash1, hash2;
@@ -223,6 +223,10 @@ int hashdb_close(HASHDB *db)
 
 	if (!db || !db->bloom || !db->bucket || !db->cache) {
 		return -1;
+	}
+
+	if (!flash) {
+		goto _CLOSE_EXIT;
 	}
 
 	/* flush cached data to file */
@@ -702,7 +706,7 @@ GET_TEST:
 EXIT:
 	printf("used time for set records = %f seconds\n", time_fly(ststart, stend));
 	printf("used time for get records = %f seconds\n", time_fly(gtstart, gtend));
-	if (-1 == hashdb_close(db)) {
+	if (-1 == hashdb_close(db, 1)) {
 		printf("close hashdb error\n");
 	}
 	if (delete) {

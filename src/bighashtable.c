@@ -57,7 +57,7 @@ hashtable *create_hashtable(int size)
 void hash_free(hashtable *tab)
 {
 	if (tab) {
-		hashdb_close(tab);
+		hashdb_close(tab, 0);
 		hashdb_unlink(tab);
 		free(tab);
 	}

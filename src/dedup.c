@@ -127,7 +127,7 @@ static inline int hash_exist(hashtable *htable, char *str)
  */
 static inline void hash_checkin(hashtable *htable, char *str)
 {
-	hash_insert(str, "1", 1, htable);
+	hash_insert(str, (void *)"1", 1, htable);
 }
 
 /*
@@ -1706,7 +1706,8 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 	block_id_t *metadata = NULL;
 	unsigned int block_num = 0;
 	unsigned int rwsize = 0, bzsize = 0;
-	char *buf = NULL, *buf_bz = NULL;
+	char *buf = NULL;
+	char *buf_bz = NULL;
 	char *last_block_buf = NULL;
 	long long offset, i;
 	int fd_dest, ret = 0;

@@ -1,0 +1,4 @@
+ - bug: md5 return null sometimes
+ - bug: bus error on 64 bits machine sometimes
+ - bug: Cannot allocate memory when undedup_regfile sometimes
+ + add: link and empty directory support
