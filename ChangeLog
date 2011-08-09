@@ -1,5 +1,7 @@
-v1.4.0 - 2011.08.09
+v1.4.1 - 2011.08.09
   - fix bug: md5 return empty string
+  - fix bug: Cannot allocate memory when undedup package sometimes
+  - fix bug: bus error on 64 bits machine sometimes
 
 v1.4.0 - 2011.08.04
   - add feature: big file support

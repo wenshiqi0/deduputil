@@ -1807,6 +1807,7 @@ static int undedup_regfile(int fd, dedup_package_header dedup_pkg_hdr, dedup_ent
 _UNDEDUP_REGFILE_EXIT:
 	if (metadata) free(metadata);
 	if (buf) free(buf);
+	if (buf_bz) free(buf_bz);
 	if (last_block_buf) free(last_block_buf);
 
 	return ret;

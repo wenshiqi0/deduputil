@@ -1,3 +1,1 @@
- - bug: Cannot allocate memory when undedup_regfile sometimes
- - bug: bus error on 64 bits machine sometimes
  + add: link and empty directory support
