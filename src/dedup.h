@@ -38,7 +38,7 @@
 extern "C" {
 #endif
 
-#define DEDUPUTIL_VERSION	"1.4.0"
+#define DEDUPUTIL_VERSION	"1.4.1"
 
 /* deduplication block id type */
 typedef unsigned int block_id_t;
