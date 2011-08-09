@@ -238,8 +238,7 @@ static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex,
 	/* read logic block information */
 	if (-1 == lseek(fd_ldata, bindex * DEDUP_LOGIC_BLOCK_ENTRY_SIZE, SEEK_SET))
 	{
-		printf("fd_ldata = %d, bindex = %d\n", fd_ldata, bindex);
-		perror("lseek in block_cmp 1");
+		perror("lseek in block_cmp");
 		exit(errno);
 	}
 	if (DEDUP_LOGIC_BLOCK_ENTRY_SIZE != read(fd_ldata, &dedup_lblock_entry, DEDUP_LOGIC_BLOCK_ENTRY_SIZE))
@@ -256,7 +255,7 @@ static int block_cmp(char *buf, int fd_ldata, int fd_bdata, unsigned int bindex,
 	/* read phsyical block */
 	if (-1 == lseek(fd_bdata, dedup_lblock_entry.block_offset + DEDUP_PKGHDR_SIZE, SEEK_SET))
 	{
-		perror("lseek in block_cmp 2");
+		perror("lseek in block_cmp");
 		exit(errno);
 	}
 	block_buf = (char *)malloc(len);
