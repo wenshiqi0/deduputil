@@ -143,6 +143,24 @@ static void show_md5(unsigned char md5_checksum[16])
 }
 
 /*
+ * transfer md5 into char *, strlen(md5_checksum) >= 32
+ */
+static void md5_2_str(unsigned char *md5_checksum)
+{
+	static char *hex = "0123456789abcdef";
+	char md5_str[33] = {0};
+	int i, j = 0;
+
+	for (i = 0; i < 16; i++) 
+	{
+		md5_str[j++] = hex[(0xf0 & md5_checksum[i]) >> 4];
+		md5_str[j++] = hex[0x0f & md5_checksum[i]];
+	}
+	md5_str[j] = '\0';
+	memcpy(md5_checksum, md5_str, 33);
+}
+
+/*
  * print dedup package header
  */
 static void show_pkg_header(dedup_package_header dedup_pkg_hdr)
@@ -389,8 +407,9 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 	char buf_bz[BUF_MAX_SIZE] = {0};
 	char block_buf[BLOCK_MAX_SIZE * 2] = {0};
 	char win_buf[BLOCK_WIN_SIZE + 1] = {0};
+	char md5_str[33] = {0};
 	char adler_pre_char;
-	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned char md5_checksum[32 + 1] = {0};
 	unsigned int bpos = 0;
 	unsigned int rwsize = 0, bzsize = 0;
 	unsigned int exp_rwsize = BUF_MAX_SIZE;
@@ -455,6 +474,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 					}
 
 					md5(block_buf, block_sz, md5_checksum);
+					md5_2_str(md5_checksum);
 					if (0 != (ret = dedup_regfile_block_process(block_buf, block_sz, 
 						md5_checksum, fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
 					{
@@ -484,6 +504,7 @@ static int file_chunk_cdc(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 					}
 
 					md5(block_buf, block_sz, md5_checksum);
+					md5_2_str(md5_checksum);
 					if (0 != (ret = dedup_regfile_block_process(block_buf, block_sz, 
 						md5_checksum, fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
 					{
@@ -536,8 +557,8 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 	char win_buf[BLOCK_MAX_SIZE * 2] = {0};
 	char block_buf[BLOCK_MAX_SIZE * 2] = {0};
 	char adler_pre_char;
-	unsigned char md5_checksum[16 + 1] = {0};
-	unsigned char md5_checksum1[16 + 1] = {0};
+	unsigned char md5_checksum[32 + 1] = {0};
+	unsigned char md5_checksum1[32 + 1] = {0};
 	unsigned char crc_checksum[16] = {0};
 	unsigned int bpos = 0;
 	unsigned int slide_sz = 0;
@@ -587,6 +608,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 				}
 
 				md5(win_buf, bzsize, md5_checksum);
+				md5_2_str(md5_checksum);
 				if (hash_exist(htable, md5_checksum))
 				{
 					/* insert fragment */
@@ -606,6 +628,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 						}
 
 						md5(block_buf, slide_sz, md5_checksum1);
+						md5_2_str(md5_checksum1);
 						if (0 != (ret = dedup_regfile_block_process(block_buf, slide_sz, md5_checksum1, 
 							fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
 						{
@@ -653,6 +676,7 @@ static int file_chunk_sb(int fd, int fd_ldata, int fd_bdata, unsigned int *pos, 
 						memcpy(block_buf, buf_bz, bzsize);
 					}
 					md5(block_buf, bzsize, md5_checksum);
+					md5_2_str(md5_checksum);
 					
 					if (0 != (ret = dedup_regfile_block_process(block_buf, bzsize, md5_checksum, 
 						fd_ldata, fd_bdata, pos, block_num, metadata, htable)))
@@ -695,7 +719,7 @@ static int file_chunk_fsp(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 {
 	int ret = 0;
 	unsigned int rwsize, bzsize;
-	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned char md5_checksum[32 + 1] = {0};
 	char *buf = NULL, *buf_bz = NULL;
 
 	buf = (char *)malloc(g_block_size * 2);
@@ -724,6 +748,7 @@ static int file_chunk_fsp(int fd, int fd_ldata, int fd_bdata, unsigned int *pos,
 		}
                 /* calculate md5 */
                 md5(buf, rwsize, md5_checksum);
+		md5_2_str(md5_checksum);
 		if (0 != (ret = dedup_regfile_block_process(buf, rwsize, md5_checksum, fd_ldata, 
 			fd_bdata, pos, block_num, metadata, htable)))
 		{
@@ -889,7 +914,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 	unsigned int rwsize = 0, bzsize = 0;
 	char *buf = NULL;
 	char buf_bz[BUF_MAX_SIZE] = {0};
-	unsigned char md5_checksum[16 + 1] = {0};
+	unsigned char md5_checksum[32 + 1] = {0};
 	unsigned char crc_checksum[16] = {0};
 	unsigned int *bindex = NULL;
 	unsigned int hkey = 0;
@@ -968,6 +993,7 @@ static int dedup_append_prepare(int fd_pkg, int fd_ldata, int fd_bdata, int fd_m
 		  +--------------------------------+
 		 */
 		md5(buf, rwsize, md5_checksum);
+		md5_2_str(md5_checksum);
                 int bflag = 0;
                 unsigned int *bindex = (block_id_t *)hash_value((void *)md5_checksum, htable);
 		bflag = (bindex == NULL) ? 1 : 0;

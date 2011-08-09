@@ -21,10 +21,10 @@
 #include "bloom.h"
 
 #define HASHDB_KEY_MAX_SZ	256
-#define HASHDB_VALUE_MAX_SZ	4096
+#define HASHDB_VALUE_MAX_SZ	64
 #define HASHDB_DEFAULT_TNUM	10000000
 #define HASHDB_DEFAULT_BNUM	10000000
-#define HASHDB_DEFAULT_CNUM	10000000
+#define HASHDB_DEFAULT_CNUM	1000000
 
 typedef struct hash_entry {
 	uint8_t cached;		/* cached or not */
