@@ -888,14 +888,13 @@ static int dedup_dir(char *fullpath, int prepos, int fd_ldata, int fd_bdata, int
 			if (verbose)
 				fprintf(stderr, "%s\n", subpath);
 
-			if (S_ISREG(statbuf.st_mode)) 
-			{
+			if (S_ISDIR(statbuf.st_mode)) {
+				dedup_dir(subpath, prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
+			} else { /* if (S_ISREG(statbuf.st_mode) || S_ISLINK(statbuf.st_mode)) */
 				ret = dedup_regfile(subpath, prepos, fd_ldata, fd_bdata, fd_mdata, htable,verbose);
 				if (ret != 0)
 					exit(ret);
 			}
-			else if (S_ISDIR(statbuf.st_mode))
-				dedup_dir(subpath, prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
 		}
 	}
 	closedir(dp);
@@ -1135,7 +1134,7 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 			goto _DEDUP_PKG_CREAT_EXIT;
 		}
 
-		if (S_ISREG(statbuf.st_mode) || S_ISDIR(statbuf.st_mode))
+		if (S_ISREG(statbuf.st_mode) || S_ISDIR(statbuf.st_mode) || S_ISLNK(statbuf.st_mode))
 		{
 			if (verbose)
 				fprintf(stderr, "%s\n", paths[i]);
@@ -1148,10 +1147,10 @@ static int dedup_package_creat(int path_nr, char **src_paths, char *dest_file, i
 			while(*(paths[i] + prepos) != '/' && prepos >= 0) prepos--;
 			prepos++;
 
-			if (S_ISREG(statbuf.st_mode))
-				dedup_regfile(paths[i], prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
-			else
+			if (S_ISDIR(statbuf.st_mode))
 				dedup_dir(paths[i], prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
+			else
+				dedup_regfile(paths[i], prepos, fd_ldata, fd_bdata, fd_mdata, htable, verbose);
 		}	
 		else 
 		{
